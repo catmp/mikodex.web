@@ -15,7 +15,7 @@ import { formatName } from '../utils/formatting'
 export default function PokemonPicker({ onSelect, onClose }) {
   const [query, setQuery]       = useState('')
   const activeGeneration        = useUserStore((s) => s.activeGeneration)
-  const [localGen, setLocalGen] = useState(activeGeneration ?? '')
+  const [localGen, setLocalGen] = useState('')
   const { data: list }          = usePokemonList()
 
   const genRange = localGen ? GENERATIONS.find((g) => g.value === localGen) : null

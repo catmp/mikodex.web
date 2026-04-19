@@ -1,12 +1,13 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Edit2, X, ChevronDown, ChevronUp, Tv2, Download } from 'lucide-react'
+import { Plus, Trash2, Edit2, X, ChevronDown, ChevronUp, Tv2, Download, Link2, Clipboard, Check } from 'lucide-react'
 import { useParties } from '../../hooks/useUserData'
 import { usePokemon } from '../../hooks/usePokemon'
 import PokemonPicker from '../../components/PokemonPicker'
 import PokemonDetail from '../Pokedex/PokemonDetail'
-import { frontSpriteUrl, shinySpriteUrl } from '../../utils/formatting'
+import { frontSpriteUrl, shinySpriteUrl, formatName } from '../../utils/formatting'
 import { getPokemon } from '../../api/pokemon'
 import { parseShowdownSet } from '../../utils/parseShowdown'
 import { TYPE_COLORS } from '../../constants/types'
@@ -21,24 +22,77 @@ const EMPTY_MEMBER = {
   pokemonId: null, nickname: '', nature: '', heldItem: '', notes: '', shiny: false,
 }
 
+const STAT_ABBR = {
+  hp: 'HP', attack: 'Atk', defense: 'Def',
+  'special-attack': 'SpA', 'special-defense': 'SpD', speed: 'Spe',
+}
+
+// URL-safe base64 encoding for share links — handles unicode via encodeURIComponent
+function encodeParty(party) {
+  try {
+    return btoa(encodeURIComponent(JSON.stringify(party)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+  } catch { return '' }
+}
+
+function decodeParty(encoded) {
+  try {
+    const pad = encoded.length % 4 ? '='.repeat(4 - encoded.length % 4) : ''
+    return JSON.parse(decodeURIComponent(atob(encoded.replace(/-/g, '+').replace(/_/g, '/') + pad)))
+  } catch { return null }
+}
+
+// Serialise one party member back to Pokémon Showdown set format.
+// Ability is not stored per-member so it is omitted; Showdown picks the first.
+function exportMemberToShowdown(member, pokemonName) {
+  const lines = []
+  const species = pokemonName ? formatName(pokemonName) : `#${member.pokemonId}`
+  const header  = member.nickname ? `${member.nickname} (${species})` : species
+  lines.push(member.heldItem ? `${header} @ ${member.heldItem}` : header)
+
+  const noteLines = (member.notes || '').split('\n').map((l) => l.trim()).filter(Boolean)
+  const evsLine   = noteLines.find((l) => /^EVs:/i.test(l))
+  const ivsLine   = noteLines.find((l) => /^IVs:/i.test(l))
+  const moves     = noteLines.filter((l) => l.startsWith('- ')).map((l) => l.slice(2).trim())
+
+  if (member.shiny) lines.push('Shiny: Yes')
+  if (evsLine) lines.push(evsLine)
+  if (ivsLine) lines.push(ivsLine)
+  if (member.nature) lines.push(`${member.nature} Nature`)
+  moves.forEach((m) => lines.push(`- ${m}`))
+  return lines.join('\n')
+}
+
 // ── Idle Mode ─────────────────────────────────────────────────────────────────
 
 const INFO_MODE_LABELS = ['Sprites', 'Types', 'Types + Items', 'Types + Items + Moves']
 
 function extractMoves(notes) {
   if (!notes) return []
-  const line = notes.split('\n').find((l) => /^Moves:/i.test(l))
-  if (line) return line.replace(/^Moves:/i, '').trim().split(',').map((m) => m.trim()).filter(Boolean)
-  return []
+  return notes.split('\n')
+    .filter((l) => l.trim().startsWith('- '))
+    .map((l) => l.trim().slice(2).trim())
+    .filter(Boolean)
 }
 
 function IdleSlot({ pokemonId, pokemonName, displayName, types, shiny, heldItem, moves, infoMode, onViewDetail }) {
-  const [hasSprite, setHasSprite] = useState(true)
+  const [spritePhase, setSpritePhase] = useState('gif')
+  const [displaySrc, setDisplaySrc]   = useState('')
 
   const showdownName = (pokemonName ?? String(pokemonId)).replace(/-/g, '')
-  const gen5Url = shiny
+  const gifUrl = shiny
     ? `https://play.pokemonshowdown.com/sprites/gen5ani-shiny/${showdownName}.gif`
     : `https://play.pokemonshowdown.com/sprites/gen5ani/${showdownName}.gif`
+  const pngUrl = shiny
+    ? `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/${pokemonId}.png`
+    : `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokemonId}.png`
+
+  // Defer src assignment to after mount so the browser always starts GIF from frame 1.
+  // If we set src during render, cached GIFs resume from a mid-animation frame and appear static.
+  useEffect(() => {
+    setSpritePhase('gif')
+    setDisplaySrc(gifUrl)
+  }, [gifUrl])
 
   const color1 = TYPE_COLORS[types[0]]?.bg ?? '#ffffff'
   const color2 = types[1] ? (TYPE_COLORS[types[1]]?.bg ?? color1) : null
@@ -65,12 +119,15 @@ function IdleSlot({ pokemonId, pokemonName, displayName, types, shiny, heldItem,
         onMouseDown={middleClick}
         title="Middle-click to view details"
       >
-        {hasSprite ? (
+        {spritePhase !== 'text' && displaySrc ? (
           <img
-            src={gen5Url}
+            src={displaySrc}
             alt={displayName}
             style={{ maxWidth: '100%', maxHeight: '100%', imageRendering: 'pixelated', objectFit: 'contain' }}
-            onError={() => setHasSprite(false)}
+            onError={() => {
+              if (spritePhase === 'gif') { setSpritePhase('png'); setDisplaySrc(pngUrl) }
+              else { setSpritePhase('text') }
+            }}
           />
         ) : (
           <span className="text-lg font-bold text-center leading-tight break-words px-1" style={nameStyle}>
@@ -112,6 +169,7 @@ function IdleSlot({ pokemonId, pokemonName, displayName, types, shiny, heldItem,
 
 function IdleMode({ party, onClose, onViewDetail }) {
   const [infoMode, setInfoMode] = useState(0)
+  const [copied, setCopied]     = useState(false)
 
   const members = useMemo(
     () => (party.members ?? []).filter((m) => m?.pokemonId),
@@ -186,9 +244,25 @@ function IdleMode({ party, onClose, onViewDetail }) {
         </div>
       )}
 
-      <div className="absolute bottom-5 flex flex-col items-center gap-1">
+      <div className="absolute bottom-5 flex flex-col items-center gap-2">
         <p className="text-white/25 text-[10px] tracking-wide">{INFO_MODE_LABELS[infoMode]}</p>
         <p className="text-white/15 text-[10px]">Space to cycle info · Esc to exit · Middle-click for details</p>
+        <button
+          onClick={() => {
+            const sets = (party.members ?? [])
+              .filter((m) => m?.pokemonId && pokemonMap[m.pokemonId])
+              .map((m) => exportMemberToShowdown(m, pokemonMap[m.pokemonId]?.name))
+              .join('\n\n')
+            navigator.clipboard.writeText(sets)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+          }}
+          className="flex items-center gap-1.5 text-white/30 hover:text-white/70 transition-colors text-[10px]"
+          title="Copy team as Showdown sets"
+        >
+          {copied ? <Check size={12} /> : <Clipboard size={12} />}
+          {copied ? 'Copied!' : 'Copy team'}
+        </button>
       </div>
     </div>,
     document.body
@@ -225,7 +299,7 @@ function MemberSlot({ member, onUpdate, onRemove, onViewDetail }) {
       // Rebuild notes in Showdown format so DamageCalc can re-parse them later
       const STAT_ABBR = { hp: 'HP', attack: 'Atk', defense: 'Def', 'special-attack': 'SpA', 'special-defense': 'SpD', speed: 'Spe' }
       const noteParts = []
-      if (parsed.moves.length) noteParts.push(`Moves: ${parsed.moves.join(', ')}`)
+      if (parsed.moves.length) { noteParts.push('Moves:'); parsed.moves.forEach((m) => noteParts.push(`- ${m}`)) }
       const evParts = Object.entries(parsed.evs).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${STAT_ABBR[k]}`)
       if (evParts.length) noteParts.push(`EVs: ${evParts.join(' / ')}`)
       const ivParts = Object.entries(parsed.ivs).filter(([, v]) => v !== 31).map(([k, v]) => `${v} ${STAT_ABBR[k]}`)
@@ -252,7 +326,7 @@ function MemberSlot({ member, onUpdate, onRemove, onViewDetail }) {
     <div className="bg-card border border-border rounded-xl p-3 space-y-2">
       <div className="flex items-start gap-3">
         {/* Sprite / picker trigger */}
-        <div className="flex flex-col items-center gap-1 shrink-0">
+        <div className="shrink-0">
           <button
             onClick={() => setPicking(true)}
             onMouseDown={(e) => {
@@ -270,32 +344,34 @@ function MemberSlot({ member, onUpdate, onRemove, onViewDetail }) {
               <Plus size={20} className="text-dim" />
             )}
           </button>
-
-          <button
-            onClick={() => member.pokemonId && onUpdate({ shiny: !member.shiny })}
-            style={{ visibility: member.pokemonId ? 'visible' : 'hidden' }}
-            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-              member.shiny
-                ? 'border-yellow-400/60 text-yellow-300 bg-yellow-400/10'
-                : 'border-border text-dim hover:text-sub'
-            }`}
-          >
-            ✨ {member.shiny ? 'Shiny' : 'Default'}
-          </button>
         </div>
 
-        <div className="flex-1 space-y-1.5">
-          <input
-            value={member.nickname}
-            onChange={(e) => onUpdate({ nickname: e.target.value })}
-            placeholder={member.pokemonId ? 'Nickname' : 'Pick a Pokémon first'}
-            className="w-full bg-surface border border-border rounded-lg px-2 py-1 text-fg text-sm placeholder:text-dim focus:outline-none focus:border-border2"
-          />
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => member.pokemonId && onUpdate({ shiny: !member.shiny })}
+              disabled={!member.pokemonId}
+              title={member.shiny ? 'Shiny' : 'Default'}
+              className={`shrink-0 w-7 h-7 rounded-lg border text-sm flex items-center justify-center transition-colors ${
+                member.shiny
+                  ? 'border-yellow-400/60 bg-yellow-400/10'
+                  : 'border-border text-dim hover:border-border2 disabled:opacity-30 disabled:cursor-default'
+              }`}
+            >
+              ✨
+            </button>
+            <input
+              value={member.nickname}
+              onChange={(e) => onUpdate({ nickname: e.target.value })}
+              placeholder={member.pokemonId ? 'Nickname' : 'Pick a Pokémon first'}
+              className="flex-1 min-w-0 bg-surface border border-border rounded-lg px-2 py-1 text-fg text-sm placeholder:text-dim focus:outline-none focus:border-border2"
+            />
+          </div>
           <div className="grid grid-cols-2 gap-1.5">
             <select
               value={member.nature}
               onChange={(e) => onUpdate({ nature: e.target.value })}
-              className="bg-surface border border-border rounded-lg px-2 py-1 text-fg text-xs focus:outline-none"
+              className="w-full bg-surface border border-border rounded-lg px-2 py-1 text-fg text-xs focus:outline-none"
             >
               <option value="">Nature…</option>
               {NATURES.map((n) => <option key={n} value={n}>{n}</option>)}
@@ -304,7 +380,7 @@ function MemberSlot({ member, onUpdate, onRemove, onViewDetail }) {
               value={member.heldItem}
               onChange={(e) => onUpdate({ heldItem: e.target.value })}
               placeholder="Held item"
-              className="bg-surface border border-border rounded-lg px-2 py-1 text-fg text-xs placeholder:text-dim focus:outline-none focus:border-border2"
+              className="w-full bg-surface border border-border rounded-lg px-2 py-1 text-fg text-xs placeholder:text-dim focus:outline-none focus:border-border2"
             />
           </div>
         </div>
@@ -318,7 +394,7 @@ function MemberSlot({ member, onUpdate, onRemove, onViewDetail }) {
         value={member.notes}
         onChange={(e) => onUpdate({ notes: e.target.value })}
         placeholder="Notes (moveset, EVs, strategy…)"
-        rows={2}
+        rows={6}
         className="w-full bg-surface border border-border rounded-lg px-2 py-1 text-fg text-xs placeholder:text-dim focus:outline-none focus:border-border2 resize-none"
       />
 
@@ -370,10 +446,11 @@ function MemberSlot({ member, onUpdate, onRemove, onViewDetail }) {
   )
 }
 
-function PartyCard({ party, onUpdate, onDelete, onIdle, onViewDetail }) {
-  const [expanded, setExpanded] = useState(false)
-  const [editName, setEditName] = useState(false)
-  const [name, setName]         = useState(party.name)
+function PartyCard({ party, onUpdate, onDelete, onIdle, onShare, onViewDetail }) {
+  const [expanded, setExpanded]     = useState(false)
+  const [editName, setEditName]     = useState(false)
+  const [name, setName]             = useState(party.name)
+  const [copiedShare, setCopiedShare] = useState(false)
 
   const members = useMemo(() => {
     const filled = party.members ?? []
@@ -442,14 +519,31 @@ function PartyCard({ party, onUpdate, onDelete, onIdle, onViewDetail }) {
           </div>
 
           {hasMembers && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onIdle() }}
-              aria-label="Idle mode"
-              title="Idle mode"
-              className="text-dim hover:text-accent transition-colors"
-            >
-              <Tv2 size={14} />
-            </button>
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const encoded = encodeParty({ name: party.name, members: party.members ?? [] })
+                  const url = `${window.location.origin}/party-profiles?shared=${encoded}`
+                  navigator.clipboard.writeText(url)
+                  setCopiedShare(true)
+                  setTimeout(() => setCopiedShare(false), 2000)
+                }}
+                aria-label="Copy share link"
+                title="Copy idle screen link"
+                className="text-dim hover:text-accent transition-colors"
+              >
+                {copiedShare ? <Check size={14} /> : <Link2 size={14} />}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onIdle() }}
+                aria-label="Idle mode"
+                title="Idle mode"
+                className="text-dim hover:text-accent transition-colors"
+              >
+                <Tv2 size={14} />
+              </button>
+            </>
           )}
 
           <button onClick={(e) => { e.stopPropagation(); onDelete() }} className="text-dim hover:text-accent">
@@ -479,19 +573,110 @@ function PartyCard({ party, onUpdate, onDelete, onIdle, onViewDetail }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function PartyProfiles() {
-  const { parties, addParty, updateParty, deleteParty } = useParties()
-  const [newName, setNewName]     = useState('')
-  const [creating, setCreating]   = useState(false)
-  const [idleParty, setIdleParty] = useState(null)
-  const [detailId, setDetailId]   = useState(null)
+  const { parties, addParty, updateParty, deleteParty, restoreParty, addPartyWithMembers } = useParties()
+  const queryClient = useQueryClient()
+
+  const [newName, setNewName]               = useState('')
+  const [creating, setCreating]             = useState(false)
+  const [importMode, setImportMode]         = useState(false)
+  const [importText, setImportText]         = useState('')
+  const [importError, setImportError]       = useState('')
+  const [importLoading, setImportLoading]   = useState(false)
+  const [detailId, setDetailId]             = useState(null)
+  const [deletedParty, setDeletedParty]     = useState(null)
+  const undoTimer = useRef(null)
+
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // ?idle=<id>  — local party, pushed when user clicks TV button
+  const idlePartyId = searchParams.get('idle')
+  const idleParty   = idlePartyId ? (parties.find((p) => p.id === idlePartyId) ?? null) : null
+
+  // ?shared=<encoded>  — external share link, decoded into a temporary party
+  const sharedParam = searchParams.get('shared')
+  const sharedParty = useMemo(() => sharedParam ? decodeParty(sharedParam) : null, [sharedParam])
+
+  const activeIdleParty = sharedParty ?? idleParty
+
+  const openIdle  = (party) => setSearchParams({ idle: party.id })
+  const closeIdle = () => {
+    if (sharedParam) { setSearchParams({}, { replace: true }); return }
+    if (window.history.length > 1) navigate(-1)
+    else setSearchParams({}, { replace: true })
+  }
 
   const { data: detailPokemon } = usePokemon(detailId)
 
-  const create = () => {
+  const handleDelete = (partyId) => {
+    const party = parties.find((p) => p.id === partyId)
+    deleteParty(partyId)
+    setDeletedParty(party)
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    undoTimer.current = setTimeout(() => setDeletedParty(null), 6000)
+  }
+
+  const handleUndo = () => {
+    if (!deletedParty) return
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    restoreParty(deletedParty)
+    setDeletedParty(null)
+  }
+
+  const cancelCreating = () => {
+    setCreating(false); setImportMode(false)
+    setImportText(''); setImportError('')
+  }
+
+  const create = async () => {
     if (!newName.trim()) return
+
+    if (importMode && importText.trim()) {
+      // Split on blank lines — each chunk is one Showdown set
+      const chunks = importText.trim().split(/\n\s*\n/).map((c) => c.trim()).filter(Boolean)
+      const parsed = chunks.map((c) => parseShowdownSet(c)).filter(Boolean).slice(0, 6)
+      if (!parsed.length) { setImportError('Could not parse any Pokémon sets. Check the format.'); return }
+
+      setImportLoading(true)
+      setImportError('')
+      try {
+        const pokemonData = await Promise.all(
+          parsed.map((p) => queryClient.fetchQuery({
+            queryKey: ['pokemon', p.pokemonSlug],
+            queryFn:  () => getPokemon(p.pokemonSlug),
+            staleTime: Infinity,
+          }))
+        )
+        const members = parsed.map((p, i) => {
+          const noteParts = []
+          if (p.moves.length) { noteParts.push('Moves:'); p.moves.forEach((m) => noteParts.push(`- ${m}`)) }
+          const evParts = Object.entries(p.evs).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${STAT_ABBR[k]}`)
+          if (evParts.length) noteParts.push(`EVs: ${evParts.join(' / ')}`)
+          const ivParts = Object.entries(p.ivs).filter(([, v]) => v !== 31).map(([k, v]) => `${v} ${STAT_ABBR[k]}`)
+          if (ivParts.length) noteParts.push(`IVs: ${ivParts.join(' / ')}`)
+          return {
+            pokemonId: pokemonData[i].id,
+            nickname:  p.nickname || '',
+            nature:    p.nature   || '',
+            heldItem:  p.heldItemRaw || '',
+            shiny:     p.shiny,
+            notes:     noteParts.join('\n'),
+          }
+        })
+        addPartyWithMembers(newName.trim(), members)
+        cancelCreating()
+        setNewName('')
+      } catch {
+        setImportError('One or more Pokémon names were not found. Check the spelling and try again.')
+      } finally {
+        setImportLoading(false)
+      }
+      return
+    }
+
     addParty(newName.trim())
     setNewName('')
-    setCreating(false)
+    cancelCreating()
   }
 
   return (
@@ -501,30 +686,66 @@ export default function PartyProfiles() {
           <h1 className="text-fg text-2xl font-bold">Party Profiles</h1>
           <p className="text-sub text-sm mt-1">Named snapshots of your actual trained parties</p>
         </div>
-        {!creating ? (
+        {!creating && (
           <button
             onClick={() => setCreating(true)}
             className="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg text-sm hover:bg-accent/90"
           >
             <Plus size={16} /> New Party
           </button>
-        ) : (
-          <div className="flex gap-2">
-            <input
-              autoFocus
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && create()}
-              placeholder="Party name…"
-              className="bg-card border border-border rounded-lg px-3 py-2 text-fg text-sm focus:outline-none focus:border-border2"
-            />
-            <button onClick={create} className="px-3 py-2 bg-accent text-white rounded-lg text-sm">Save</button>
-            <button onClick={() => setCreating(false)} className="text-sub px-2"><X size={16} /></button>
-          </div>
         )}
       </div>
 
-      {parties.length === 0 && (
+      {creating && (
+        <div className="bg-card border border-border rounded-xl p-4 mb-4 space-y-3">
+          <input
+            autoFocus
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !importMode) create() }}
+            placeholder="Party name…"
+            className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-fg text-sm focus:outline-none focus:border-border2"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setImportMode(false); setImportError('') }}
+              className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${!importMode ? 'bg-accent2 border-accent text-accent' : 'border-border text-sub hover:text-fg'}`}
+            >
+              Empty
+            </button>
+            <button
+              onClick={() => { setImportMode(true); setImportError('') }}
+              className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${importMode ? 'bg-accent2 border-accent text-accent' : 'border-border text-sub hover:text-fg'}`}
+            >
+              Import from Showdown
+            </button>
+          </div>
+          {importMode && (
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              placeholder={"Paste full team in Pokémon Showdown format…\n\nPikachu @ Light Ball\nAbility: Static\n…\n\nCharizard @ Choice Specs\n…"}
+              rows={8}
+              className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-fg text-xs placeholder:text-dim focus:outline-none focus:border-border2 resize-none font-mono"
+            />
+          )}
+          {importError && <p className="text-red-400 text-xs">{importError}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={create}
+              disabled={importLoading}
+              className="px-4 py-2 bg-accent text-white rounded-lg text-sm disabled:opacity-50"
+            >
+              {importLoading ? 'Importing…' : 'Save'}
+            </button>
+            <button onClick={cancelCreating} className="text-sub px-2 text-sm hover:text-fg">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {parties.length === 0 && !creating && (
         <div className="text-center py-16 text-sub">
           <p className="text-4xl mb-3">🎮</p>
           <p>No parties yet. Create one to track your real roster.</p>
@@ -537,18 +758,18 @@ export default function PartyProfiles() {
             key={party.id}
             party={party}
             onUpdate={(u) => updateParty(party.id, u)}
-            onDelete={() => deleteParty(party.id)}
-            onIdle={() => setIdleParty(party)}
+            onDelete={() => handleDelete(party.id)}
+            onIdle={() => openIdle(party)}
             onViewDetail={(id) => setDetailId(id)}
           />
         ))}
       </div>
 
-      {idleParty && (
+      {activeIdleParty && (
         <IdleMode
-          party={idleParty}
-          onClose={() => setIdleParty(null)}
-          onViewDetail={(id) => { setIdleParty(null); setDetailId(id) }}
+          party={activeIdleParty}
+          onClose={closeIdle}
+          onViewDetail={(id) => { closeIdle(); setDetailId(id) }}
         />
       )}
 
@@ -558,6 +779,26 @@ export default function PartyProfiles() {
           onClose={() => setDetailId(null)}
           onSelectPokemon={(id) => setDetailId(id)}
         />
+      )}
+
+      {deletedParty && createPortal(
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-3 bg-card border border-border rounded-xl px-4 py-3 shadow-xl">
+          <span className="text-sub text-sm">"{deletedParty.name}" deleted.</span>
+          <button
+            onClick={handleUndo}
+            className="text-accent text-sm font-semibold hover:text-fg transition-colors"
+          >
+            Undo
+          </button>
+          <button
+            onClick={() => { clearTimeout(undoTimer.current); setDeletedParty(null) }}
+            className="text-dim hover:text-sub transition-colors"
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>,
+        document.body
       )}
     </div>
   )

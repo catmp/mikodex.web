@@ -28,6 +28,10 @@ export const useUserStore = create(
         set((s) => ({ parties: s.parties.map((p) => (p.id === id ? { ...p, ...updates } : p)) })),
       deleteParty: (id) =>
         set((s) => ({ parties: s.parties.filter((p) => p.id !== id) })),
+      restoreParty: (party) =>
+        set((s) => ({ parties: [...s.parties, party] })),
+      addPartyWithMembers: (name, members) =>
+        set((s) => ({ parties: [...s.parties, { id: uid(), name, members }] })),
 
       // ── EV Tracker ────────────────────────────────────────────────────
       evData: {},

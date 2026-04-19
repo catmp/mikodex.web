@@ -367,13 +367,7 @@ function SlotPanel({ label, slot, pokemonData, moveMap, gen, parties, pokemonLis
     if (member.notes) {
       for (const noteLine of member.notes.split('\n')) {
         const t = noteLine.trim()
-        if (/^Moves:\s*/i.test(t)) {
-          t.replace(/^Moves:\s*/i, '').split(',').forEach((m) => {
-            if (m.trim()) lines.push(`- ${m.trim()}`)
-          })
-        } else if (/^(EVs|IVs):/i.test(t)) {
-          lines.push(t)
-        }
+        if (t.startsWith('- ') || /^(EVs|IVs):/i.test(t)) lines.push(t)
       }
     }
 

@@ -19,11 +19,13 @@ export function useTeams() {
 }
 
 export function useParties() {
-  const parties     = useUserStore((s) => s.parties)
-  const addParty    = useUserStore((s) => s.addParty)
-  const updateParty = useUserStore((s) => s.updateParty)
-  const deleteParty = useUserStore((s) => s.deleteParty)
-  return { parties, addParty, updateParty, deleteParty }
+  const parties             = useUserStore((s) => s.parties)
+  const addParty            = useUserStore((s) => s.addParty)
+  const updateParty         = useUserStore((s) => s.updateParty)
+  const deleteParty         = useUserStore((s) => s.deleteParty)
+  const restoreParty        = useUserStore((s) => s.restoreParty)
+  const addPartyWithMembers = useUserStore((s) => s.addPartyWithMembers)
+  return { parties, addParty, updateParty, deleteParty, restoreParty, addPartyWithMembers }
 }
 
 export function useEVData() {
