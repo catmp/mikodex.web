@@ -9,6 +9,7 @@ import TypeBadge from '../../components/TypeBadge'
 import { getMove } from '../../api/moves'
 import { formatName, frontSpriteUrl } from '../../utils/formatting'
 import { patchMatrixForGen } from '../../utils/typeEffectiveness'
+import { parseShowdownSet } from '../../utils/parseShowdown'
 import { GEN_INFO } from '../../constants/generations'
 
 // ── Constants ───────────────────────────────────────────────────────────────
@@ -169,46 +170,6 @@ function runCalc({ atkSlot, defSlot, atkPokemon, defPokemon, moveData, weather, 
 }
 
 // ── Showdown parser ──────────────────────────────────────────────────────────
-
-const SD_STAT = { HP: 'hp', Atk: 'attack', Def: 'defense', SpA: 'special-attack', SpD: 'special-defense', Spe: 'speed' }
-
-function parseShowdown(text) {
-  const lines = text.trim().split('\n').map((l) => l.trim()).filter(Boolean)
-  if (!lines.length) return null
-
-  const [rawName, rawItem] = (lines[0] ?? '').split(' @ ')
-  const pokemonName = rawName.replace(/\s*\(.*?\)/g, '').trim().toLowerCase().replace(/\s+/g, '-')
-  const heldItem    = rawItem ? rawItem.trim().toLowerCase().replace(/[\s']+/g, '-').replace(/-+/g, '-') : ''
-
-  let level = 100, nature = 'Hardy'
-  const evs = { hp: 0, attack: 0, defense: 0, 'special-attack': 0, 'special-defense': 0, speed: 0 }
-  const ivs = { hp: 31, attack: 31, defense: 31, 'special-attack': 31, 'special-defense': 31, speed: 31 }
-  const moveNames = []
-
-  for (const line of lines.slice(1)) {
-    if (line.startsWith('- ')) {
-      moveNames.push(line.slice(2).trim().toLowerCase().replace(/\s+/g, '-'))
-    } else if (line.startsWith('EVs:')) {
-      line.slice(4).split('/').forEach((part) => {
-        const [num, stat] = part.trim().split(' ')
-        const key = SD_STAT[stat?.trim()]
-        if (key) evs[key] = parseInt(num, 10) || 0
-      })
-    } else if (line.startsWith('IVs:')) {
-      line.slice(4).split('/').forEach((part) => {
-        const [num, stat] = part.trim().split(' ')
-        const key = SD_STAT[stat?.trim()]
-        if (key) ivs[key] = parseInt(num, 10) || 0
-      })
-    } else if (line.startsWith('Level:')) {
-      level = parseInt(line.split(':')[1], 10) || 50
-    } else if (line.endsWith(' Nature')) {
-      nature = line.replace(' Nature', '').trim()
-    }
-  }
-
-  return { pokemonName, heldItem, level, nature, evs, ivs, moveNames }
-}
 
 // ── Slot factory ─────────────────────────────────────────────────────────────
 
@@ -381,25 +342,50 @@ function SlotPanel({ label, slot, pokemonData, moveMap, gen, parties, pokemonLis
     : null
 
   const doImport = () => {
-    const parsed = parseShowdown(importText)
+    const parsed = parseShowdownSet(importText)
     if (!parsed) return
-    const match = pokemonList?.find((p) => p.name === parsed.pokemonName)
+    const match = pokemonList?.find((p) => p.name === parsed.pokemonSlug)
     if (match) onSetPokemon(match)
     onChange('level',    parsed.level)
     onChange('nature',   parsed.nature in NATURES ? parsed.nature : 'Hardy')
     onChange('evs',      parsed.evs)
     onChange('ivs',      parsed.ivs)
-    onChange('heldItem', parsed.heldItem in ITEMS ? parsed.heldItem : '')
-    onChange('moves',    parsed.moveNames.slice(0, 4))
+    onChange('heldItem', parsed.heldItemSlug in ITEMS ? parsed.heldItemSlug : '')
+    onChange('moves',    parsed.moveSlugs.slice(0, 4))
     setImportText('')
     setShowImport(false)
   }
 
   const importPartyMember = (member) => {
-    const match = pokemonList?.find((p) => p.id === member.pokemonId)
-    if (match) onSetPokemon(match)
-    if (member.nature && member.nature in NATURES) onChange('nature', member.nature)
-    if (member.heldItem && member.heldItem in ITEMS)  onChange('heldItem', member.heldItem)
+    const pokemon = pokemonList?.find((p) => p.id === member.pokemonId)
+    if (!pokemon) { setShowParty(false); return }
+
+    // Reconstruct a Showdown set string from stored party fields so the shared
+    // parser handles all normalisation (item slugging, move slugging, stat parsing).
+    const lines = [`${pokemon.name}${member.heldItem ? ` @ ${member.heldItem}` : ''}`]
+    if (member.nature) lines.push(`${member.nature} Nature`)
+    if (member.notes) {
+      for (const noteLine of member.notes.split('\n')) {
+        const t = noteLine.trim()
+        if (/^Moves:\s*/i.test(t)) {
+          t.replace(/^Moves:\s*/i, '').split(',').forEach((m) => {
+            if (m.trim()) lines.push(`- ${m.trim()}`)
+          })
+        } else if (/^(EVs|IVs):/i.test(t)) {
+          lines.push(t)
+        }
+      }
+    }
+
+    const parsed = parseShowdownSet(lines.join('\n'))
+    if (!parsed) { setShowParty(false); return }
+
+    onSetPokemon(pokemon)
+    onChange('nature',   parsed.nature in NATURES ? parsed.nature : 'Hardy')
+    onChange('heldItem', parsed.heldItemSlug in ITEMS ? parsed.heldItemSlug : '')
+    onChange('evs',      parsed.evs)
+    onChange('ivs',      parsed.ivs)
+    onChange('moves',    parsed.moveSlugs.slice(0, 4))
     setShowParty(false)
   }
 

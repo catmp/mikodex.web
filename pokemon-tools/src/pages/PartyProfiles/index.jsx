@@ -8,6 +8,7 @@ import PokemonPicker from '../../components/PokemonPicker'
 import PokemonDetail from '../Pokedex/PokemonDetail'
 import { officialArtworkUrl, shinyArtworkUrl } from '../../utils/formatting'
 import { getPokemon } from '../../api/pokemon'
+import { parseShowdownSet } from '../../utils/parseShowdown'
 import { TYPE_COLORS } from '../../constants/types'
 
 const NATURES = [
@@ -18,59 +19,6 @@ const NATURES = [
 
 const EMPTY_MEMBER = {
   pokemonId: null, nickname: '', nature: '', heldItem: '', notes: '', shiny: false,
-}
-
-// ── Showdown import parser ────────────────────────────────────────────────────
-
-function parseShowdownMember(text) {
-  const lines = text.trim().split('\n').map((l) => l.trim()).filter(Boolean)
-  if (!lines.length) return null
-
-  // Line 1: "Nickname (Species) @ Item" | "Species @ Item" | "Species"
-  let rawName = lines[0]
-  let heldItem = ''
-  let nickname = ''
-
-  const atIdx = rawName.lastIndexOf(' @ ')
-  if (atIdx !== -1) {
-    heldItem = rawName.slice(atIdx + 3).trim()
-    rawName  = rawName.slice(0, atIdx).trim()
-  }
-  const parenMatch = rawName.match(/^(.+?)\s*\((.+?)\)$/)
-  if (parenMatch) {
-    nickname = parenMatch[1].trim()
-    rawName  = parenMatch[2].trim()
-  }
-
-  // Normalize to PokeAPI slug (lowercase, spaces/special chars → hyphens)
-  const pokemonSlug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-
-  let nature = ''
-  let shiny  = false
-  const moves = []
-  let evText  = ''
-  let ivText  = ''
-
-  for (const line of lines.slice(1)) {
-    if (line.startsWith('- ')) {
-      moves.push(line.slice(2).trim())
-    } else if (/^Shiny:\s*Yes/i.test(line)) {
-      shiny = true
-    } else if (/^(\w+)\s+Nature$/i.test(line)) {
-      nature = line.match(/^(\w+)\s+Nature$/i)[1]
-    } else if (/^EVs:/i.test(line)) {
-      evText = line.replace(/^EVs:/i, '').trim()
-    } else if (/^IVs:/i.test(line)) {
-      ivText = line.replace(/^IVs:/i, '').trim()
-    }
-  }
-
-  const noteParts = []
-  if (moves.length) noteParts.push(`Moves: ${moves.join(', ')}`)
-  if (evText) noteParts.push(`EVs: ${evText}`)
-  if (ivText) noteParts.push(`IVs: ${ivText}`)
-
-  return { pokemonSlug, nickname, heldItem, nature, shiny, notes: noteParts.join('\n') }
 }
 
 // ── Idle Mode ─────────────────────────────────────────────────────────────────
@@ -263,7 +211,7 @@ function MemberSlot({ member, onUpdate, onRemove, onViewDetail }) {
     : null
 
   const handleImport = async () => {
-    const parsed = parseShowdownMember(importText)
+    const parsed = parseShowdownSet(importText)
     if (!parsed) { setImportError('Could not parse set. Check the format.'); return }
     setImportLoading(true)
     setImportError('')
@@ -273,13 +221,23 @@ function MemberSlot({ member, onUpdate, onRemove, onViewDetail }) {
         queryFn:  () => getPokemon(parsed.pokemonSlug),
         staleTime: Infinity,
       })
+
+      // Rebuild notes in Showdown format so DamageCalc can re-parse them later
+      const STAT_ABBR = { hp: 'HP', attack: 'Atk', defense: 'Def', 'special-attack': 'SpA', 'special-defense': 'SpD', speed: 'Spe' }
+      const noteParts = []
+      if (parsed.moves.length) noteParts.push(`Moves: ${parsed.moves.join(', ')}`)
+      const evParts = Object.entries(parsed.evs).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${STAT_ABBR[k]}`)
+      if (evParts.length) noteParts.push(`EVs: ${evParts.join(' / ')}`)
+      const ivParts = Object.entries(parsed.ivs).filter(([, v]) => v !== 31).map(([k, v]) => `${v} ${STAT_ABBR[k]}`)
+      if (ivParts.length) noteParts.push(`IVs: ${ivParts.join(' / ')}`)
+
       onUpdate({
         pokemonId: pokemon.id,
         nickname:  parsed.nickname || '',
         nature:    parsed.nature || '',
-        heldItem:  parsed.heldItem || '',
+        heldItem:  parsed.heldItemRaw || '',  // store display name in party profiles
         shiny:     parsed.shiny,
-        notes:     parsed.notes,
+        notes:     noteParts.join('\n'),
       })
       setImporting(false)
       setImportText('')
