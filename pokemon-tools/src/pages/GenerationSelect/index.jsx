@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useUserStore } from '../../store/userStore'
 import { GEN_INFO } from '../../constants/generations'
 import { frontSpriteUrl } from '../../utils/formatting'
@@ -64,14 +64,16 @@ function GenCard({ genKey, info, isActive, onSelect }) {
 }
 
 export default function GenerationSelect() {
-  const navigate             = useNavigate()
-  const activeGeneration     = useUserStore((s) => s.activeGeneration)
-  const setActiveGeneration  = useUserStore((s) => s.setActiveGeneration)
-  const clearGeneration      = useUserStore((s) => s.clearGeneration)
+  const navigate            = useNavigate()
+  const location            = useLocation()
+  const returnTo            = location.state?.from ?? '/pokedex'
+  const activeGeneration    = useUserStore((s) => s.activeGeneration)
+  const setActiveGeneration = useUserStore((s) => s.setActiveGeneration)
+  const clearGeneration     = useUserStore((s) => s.clearGeneration)
 
   const handleSelect = (genKey) => {
     setActiveGeneration(genKey)
-    navigate('/pokedex')
+    navigate(returnTo)
   }
 
   return (
@@ -104,13 +106,13 @@ export default function GenerationSelect() {
           {activeGeneration ? (
             <>
               <button
-                onClick={() => navigate('/pokedex')}
+                onClick={() => navigate(returnTo)}
                 className="px-8 py-3 bg-accent text-white rounded-xl font-semibold hover:bg-accent/90 transition-colors text-sm"
               >
                 Continue with {GEN_INFO[activeGeneration]?.region} →
               </button>
               <button
-                onClick={() => { clearGeneration(); navigate('/pokedex') }}
+                onClick={() => { clearGeneration(); navigate(returnTo) }}
                 className="text-dim text-xs hover:text-sub underline"
               >
                 Use all generations (no filter)
@@ -118,7 +120,7 @@ export default function GenerationSelect() {
             </>
           ) : (
             <button
-              onClick={() => navigate('/pokedex')}
+              onClick={() => navigate(returnTo)}
               className="text-dim text-xs hover:text-sub underline"
             >
               Skip — show all generations

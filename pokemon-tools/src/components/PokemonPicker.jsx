@@ -6,20 +6,20 @@ import { GENERATIONS } from '../constants/types'
 import { GEN_INFO } from '../constants/generations'
 import { formatName } from '../utils/formatting'
 
-// Shared Pokémon picker modal — automatically filters to the active generation.
+// Shared Pokémon picker modal — filters to the active generation by default.
+// The user can override the generation via the dropdown in the header without
+// affecting the global generation setting.
 // Props:
 //   onSelect(pokemon: { id, name }) — called when user picks a Pokémon
 //   onClose() — called to dismiss
-//   title — optional header label
 export default function PokemonPicker({ onSelect, onClose }) {
-  const [query, setQuery]         = useState('')
-  const activeGeneration          = useUserStore((s) => s.activeGeneration)
-  const { data: list }            = usePokemonList()
+  const [query, setQuery]       = useState('')
+  const activeGeneration        = useUserStore((s) => s.activeGeneration)
+  const [localGen, setLocalGen] = useState(activeGeneration ?? '')
+  const { data: list }          = usePokemonList()
 
-  const genRange = activeGeneration
-    ? GENERATIONS.find((g) => g.value === activeGeneration)
-    : null
-  const genInfo = activeGeneration ? GEN_INFO[activeGeneration] : null
+  const genRange = localGen ? GENERATIONS.find((g) => g.value === localGen) : null
+  const genInfo  = localGen ? GEN_INFO[localGen] : null
 
   const filtered = useMemo(() => {
     if (!list) return []
@@ -43,17 +43,21 @@ export default function PokemonPicker({ onSelect, onClose }) {
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={`Search${genInfo ? ` Gen ${genInfo.number} (${genInfo.region})` : ''} Pokémon…`}
+            placeholder={`Search${genInfo ? ` Gen ${genInfo.number} (${genInfo.region})` : ' all'} Pokémon…`}
             className="flex-1 bg-transparent text-fg text-sm placeholder:text-dim focus:outline-none"
           />
-          {genInfo && (
-            <span
-              className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0"
-              style={{ backgroundColor: genInfo.color + '22', color: genInfo.color }}
-            >
-              Gen {genInfo.number}
-            </span>
-          )}
+          <select
+            value={localGen}
+            onChange={(e) => setLocalGen(e.target.value)}
+            aria-label="Filter by generation"
+            className="bg-card border border-border rounded-lg px-2 py-1 text-xs focus:outline-none shrink-0"
+            style={genInfo ? { color: genInfo.color } : {}}
+          >
+            <option value="">All gens</option>
+            {GENERATIONS.map((g) => (
+              <option key={g.value} value={g.value}>Gen {g.label.replace('Gen ', '')}</option>
+            ))}
+          </select>
           <button onClick={onClose} aria-label="Close picker" className="text-sub hover:text-fg">
             <X size={18} />
           </button>

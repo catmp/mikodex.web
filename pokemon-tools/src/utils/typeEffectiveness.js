@@ -6,6 +6,7 @@
 // Key differences:
 //  Gen 1   — No Steel, Dark, or Fairy types.
 //            Ghost→Psychic = 0× (famous code glitch; intended 2×).
+//            Ice→Fire = 1× (became 0.5× in Gen 2).
 //            Poison→Bug = 2× and Bug→Poison = 2× (both nerfed in Gen 2).
 //  Gen 2-5 — No Fairy. Steel resisted Ghost and Dark (0.5×) until Gen 6.
 //  Gen 6+  — Fairy added; Steel's Ghost/Dark resistance removed.
@@ -39,6 +40,7 @@ export function patchMatrixForGen(matrix, gen) {
     removeType('dark')
     removeType('fairy')
     setCell('ghost', 'psychic', 0)  // Gen 1 glitch (should be 2×, actually 0×)
+    setCell('ice', 'fire', 1)       // Ice→Fire was neutral in Gen 1; resisted from Gen 2
     setCell('poison', 'bug', 2)     // nerfed to 1× in Gen 2
     setCell('bug', 'poison', 2)     // nerfed to 0.5× in Gen 2
   } else {

@@ -3,7 +3,15 @@ import { useTypeChart } from '../../hooks/useTypeChart'
 import { useUserStore } from '../../store/userStore'
 import { GEN_INFO } from '../../constants/generations'
 import TypeBadge from '../../components/TypeBadge'
-import { TYPE_LIST } from '../../constants/types'
+import { TYPE_LIST, TYPE_COLORS } from '../../constants/types'
+
+const TYPE_ABBREV = {
+  normal:   'NOR', fire:     'FIR', water:    'WAT', electric: 'ELC',
+  grass:    'GRS', ice:      'ICE', fighting: 'FGT', poison:   'PSN',
+  ground:   'GRD', flying:   'FLY', psychic:  'PSY', bug:      'BUG',
+  rock:     'ROC', ghost:    'GHO', dragon:   'DRG', dark:     'DRK',
+  steel:    'STL', fairy:    'FAI',
+}
 import { getDefenderMultipliers, patchMatrixForGen, getTypesForGen } from '../../utils/typeEffectiveness'
 
 const MULT_STYLE = {
@@ -226,13 +234,21 @@ export default function TypeChart() {
               <tr>
                 <th className="w-20 text-left pr-2 text-dim font-normal text-xs">ATK \ DEF</th>
                 {typeList.map((t) => (
-                  <th key={t} className="w-8 pb-1">
-                    <div
-                      className="w-8 text-[9px] font-medium"
-                      title={t}
-                      style={{ writingMode: 'vertical-lr', transform: 'rotate(180deg)', whiteSpace: 'nowrap' }}
-                    >
-                      {t}
+                  <th key={t} className="w-8 pb-1 align-bottom">
+                    <div className="flex justify-center">
+                      <span
+                        className="text-[9px] font-bold rounded"
+                        title={t}
+                        style={{
+                          backgroundColor: TYPE_COLORS[t]?.bg,
+                          color: TYPE_COLORS[t]?.text ?? '#fff',
+                          padding: '2px 3px',
+                          letterSpacing: '0.05em',
+                          display: 'inline-block',
+                        }}
+                      >
+                        {TYPE_ABBREV[t] ?? t.slice(0, 3).toUpperCase()}
+                      </span>
                     </div>
                   </th>
                 ))}

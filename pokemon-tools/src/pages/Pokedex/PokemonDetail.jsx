@@ -10,6 +10,7 @@ import { getMove } from '../../api/moves'
 import { getMachine } from '../../api/moves'
 import { useTypeChart } from '../../hooks/useTypeChart'
 import { useUserStore } from '../../store/userStore'
+import { useParties } from '../../hooks/useUserData'
 import TypeBadge from '../../components/TypeBadge'
 import {
   formatName, padId, officialArtworkUrl, shinyArtworkUrl,
@@ -756,24 +757,125 @@ function flattenChain(chain) {
   return result
 }
 
+// ── AddToPartyModal ────────────────────────────────────────────────────────
+
+function AddToPartyModal({ pokemonId, pokemonName, onClose }) {
+  const { parties, addParty, updateParty } = useParties()
+  const [newName, setNewName]   = useState('')
+  const [creating, setCreating] = useState(false)
+  const [feedback, setFeedback] = useState('')
+
+  const addToParty = (party) => {
+    const members = party.members ?? []
+    if (members.length >= 6) { setFeedback(`${party.name} is full (6/6).`); return }
+    updateParty(party.id, {
+      members: [...members, { pokemonId, nickname: '', nature: '', heldItem: '', notes: '', shiny: false }],
+    })
+    setFeedback(`Added to ${party.name}!`)
+    setTimeout(onClose, 1000)
+  }
+
+  const createAndAdd = () => {
+    if (!newName.trim()) return
+    addParty(newName.trim())
+    // Zustand is synchronous — getState() reads the updated parties immediately
+    const newParty = useUserStore.getState().parties.at(-1)
+    updateParty(newParty.id, {
+      members: [{ pokemonId, nickname: '', nature: '', heldItem: '', notes: '', shiny: false }],
+    })
+    setFeedback(`Added to ${newName.trim()}!`)
+    setTimeout(onClose, 1000)
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-surface border border-border2 rounded-xl p-5 w-72 shadow-2xl z-10">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-fg font-semibold text-sm">Add {formatName(pokemonName)} to party</h3>
+          <button onClick={onClose} className="text-dim hover:text-fg"><X size={14} /></button>
+        </div>
+
+        {feedback ? (
+          <p className="text-green-400 text-sm text-center py-3">{feedback}</p>
+        ) : (
+          <>
+            {parties.length === 0 && !creating && (
+              <p className="text-sub text-xs text-center mb-3">No parties yet — create one below.</p>
+            )}
+
+            {parties.length > 0 && (
+              <div className="space-y-1.5 mb-3 max-h-48 overflow-y-auto">
+                {parties.map((party) => {
+                  const count = (party.members ?? []).length
+                  const full  = count >= 6
+                  return (
+                    <button
+                      key={party.id}
+                      onClick={() => addToParty(party)}
+                      disabled={full}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs border transition-colors ${
+                        full
+                          ? 'border-border text-dim cursor-not-allowed'
+                          : 'border-border text-fg hover:border-accent hover:text-accent'
+                      }`}
+                    >
+                      <span>{party.name}</span>
+                      <span className={`font-mono ${full ? 'text-red-400' : 'text-sub'}`}>{count}/6</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            {creating ? (
+              <div className="flex gap-2">
+                <input
+                  autoFocus
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && createAndAdd()}
+                  placeholder="New party name…"
+                  className="flex-1 bg-card border border-border rounded-lg px-2 py-1.5 text-fg text-xs focus:outline-none focus:border-border2"
+                />
+                <button onClick={createAndAdd} className="px-2 py-1.5 bg-accent text-white rounded-lg text-xs">Add</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setCreating(true)}
+                className="w-full text-xs text-sub hover:text-accent border border-dashed border-border hover:border-accent rounded-lg py-2 transition-colors"
+              >
+                + New party
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 // ── PokemonDetail ──────────────────────────────────────────────────────────
 
 const TABS = ['overview', 'moves', 'encounters']
 
 export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initialTab = 'overview' }) {
-  const [shiny, setShiny]         = useState(false)
-  const [imgError, setImgError]   = useState(false)
-  const [activeTab, setActiveTab] = useState(initialTab)
-  const [prevId, setPrevId]       = useState(pokemon.id)
+  const [shiny, setShiny]               = useState(false)
+  const [imgError, setImgError]         = useState(false)
+  const [activeTab, setActiveTab]       = useState(initialTab)
+  const [prevId, setPrevId]             = useState(pokemon.id)
+  const [addToPartyOpen, setAddToPartyOpen] = useState(false)
 
   const activeGeneration = useUserStore((s) => s.activeGeneration)
 
-  // Reset tab and shiny when the displayed pokemon changes (store-previous-render pattern)
+  // Reset state when the displayed pokemon changes (store-previous-render pattern)
   if (prevId !== pokemon.id) {
     setPrevId(pokemon.id)
     setActiveTab(initialTab)
     setShiny(false)
     setImgError(false)
+    setAddToPartyOpen(false)
   }
 
   useEffect(() => {
@@ -858,17 +960,30 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
                       src={imgError ? frontSpriteUrl(pokemon.id) : artworkUrl}
                       alt={formatName(pokemon.name)}
                       onError={() => setImgError(true)}
+                      onMouseDown={(e) => {
+                        if (e.button === 1) { e.preventDefault(); setAddToPartyOpen(true) }
+                      }}
                       key={artworkUrl}
-                      className="w-48 h-48 object-contain"
+                      className="w-48 h-48 object-contain cursor-pointer"
+                      title="Middle-click to add to a party"
                     />
-                    <button
-                      onClick={() => { setShiny((s) => !s); setImgError(false) }}
-                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                        shiny ? 'border-yellow-400 text-yellow-300 bg-yellow-400/10' : 'border-border2 text-sub hover:text-fg'
-                      }`}
-                    >
-                      ✨ {shiny ? 'Shiny' : 'Default'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { setShiny((s) => !s); setImgError(false) }}
+                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                          shiny ? 'border-yellow-400 text-yellow-300 bg-yellow-400/10' : 'border-border2 text-sub hover:text-fg'
+                        }`}
+                      >
+                        ✨ {shiny ? 'Shiny' : 'Default'}
+                      </button>
+                      <button
+                        onClick={() => setAddToPartyOpen(true)}
+                        className="px-3 py-1 rounded-full text-xs font-medium border border-border2 text-sub hover:text-fg transition-colors"
+                      >
+                        + Add to party
+                      </button>
+                    </div>
+                    <p className="text-dim text-[10px]">Middle-click sprite to add to a party</p>
                   </div>
 
                   {/* Base stats */}
@@ -1012,6 +1127,14 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
           </div>
         </div>
       </div>
+
+      {addToPartyOpen && (
+        <AddToPartyModal
+          pokemonId={pokemon.id}
+          pokemonName={pokemon.name}
+          onClose={() => setAddToPartyOpen(false)}
+        />
+      )}
     </div>
   )
 }

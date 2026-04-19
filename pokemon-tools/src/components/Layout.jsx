@@ -1,4 +1,4 @@
-import { Outlet, NavLink, Link } from 'react-router-dom'
+import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import {
   BookOpen, Grid3X3, Zap, Sparkles, Users,
   UserCheck, BarChart2, CheckSquare, Globe,
@@ -39,12 +39,14 @@ function NavItem({ to, icon, label, mobile = false }) {
 }
 
 function GenBadge() {
+  const location         = useLocation()
   const activeGeneration = useUserStore((s) => s.activeGeneration)
-  const genInfo = activeGeneration ? GEN_INFO[activeGeneration] : null
+  const genInfo          = activeGeneration ? GEN_INFO[activeGeneration] : null
 
   return (
     <Link
       to="/select-generation"
+      state={{ from: location.pathname }}
       className="block mx-2 mb-2 p-3 rounded-lg border border-border hover:border-border2 transition-colors group"
     >
       {genInfo ? (
@@ -74,12 +76,14 @@ function GenBadge() {
 }
 
 export default function Layout() {
+  const location = useLocation()
+
   return (
     <div className="min-h-screen bg-base flex">
       {/* ── Sidebar (desktop) ────────────────────────────────────────── */}
       <aside className="hidden md:flex flex-col w-56 fixed inset-y-0 left-0 bg-surface border-r border-border z-40">
         <div className="p-5 border-b border-border">
-          <Link to="/select-generation" className="block hover:opacity-80 transition-opacity">
+          <Link to="/select-generation" state={{ from: location.pathname }} className="block hover:opacity-80 transition-opacity">
             <h1 className="text-xl font-bold text-fg tracking-tight">
               <span className="text-accent">Miko</span>Dex
             </h1>
