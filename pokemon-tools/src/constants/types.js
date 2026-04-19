@@ -1,13 +1,13 @@
 export const TYPE_COLORS = {
-  normal:   { bg: '#A8A878', text: '#111' },
+  normal:   { bg: '#A8A878', text: '#fff' },
   fire:     { bg: '#F08030', text: '#fff' },
   water:    { bg: '#6890F0', text: '#fff' },
-  electric: { bg: '#F8D030', text: '#111' },
+  electric: { bg: '#F8D030', text: '#fff' },
   grass:    { bg: '#78C850', text: '#fff' },
-  ice:      { bg: '#98D8D8', text: '#111' },
+  ice:      { bg: '#98D8D8', text: '#fff' },
   fighting: { bg: '#C03028', text: '#fff' },
   poison:   { bg: '#A040A0', text: '#fff' },
-  ground:   { bg: '#E0C068', text: '#111' },
+  ground:   { bg: '#E0C068', text: '#fff' },
   flying:   { bg: '#A890F0', text: '#fff' },
   psychic:  { bg: '#F85888', text: '#fff' },
   bug:      { bg: '#A8B820', text: '#fff' },
@@ -15,8 +15,8 @@ export const TYPE_COLORS = {
   ghost:    { bg: '#705898', text: '#fff' },
   dragon:   { bg: '#7038F8', text: '#fff' },
   dark:     { bg: '#705848', text: '#fff' },
-  steel:    { bg: '#B8B8D0', text: '#111' },
-  fairy:    { bg: '#EE99AC', text: '#111' },
+  steel:    { bg: '#B8B8D0', text: '#fff' },
+  fairy:    { bg: '#EE99AC', text: '#fff' },
 }
 
 export const TYPE_LIST = Object.keys(TYPE_COLORS)
