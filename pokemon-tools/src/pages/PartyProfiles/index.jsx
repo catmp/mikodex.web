@@ -6,7 +6,7 @@ import { useParties } from '../../hooks/useUserData'
 import { usePokemon } from '../../hooks/usePokemon'
 import PokemonPicker from '../../components/PokemonPicker'
 import PokemonDetail from '../Pokedex/PokemonDetail'
-import { officialArtworkUrl, shinyArtworkUrl } from '../../utils/formatting'
+import { frontSpriteUrl, shinySpriteUrl } from '../../utils/formatting'
 import { getPokemon } from '../../api/pokemon'
 import { parseShowdownSet } from '../../utils/parseShowdown'
 import { TYPE_COLORS } from '../../constants/types'
@@ -207,7 +207,7 @@ function MemberSlot({ member, onUpdate, onRemove, onViewDetail }) {
   const queryClient = useQueryClient()
 
   const spriteUrl = member.pokemonId
-    ? (member.shiny ? shinyArtworkUrl(member.pokemonId) : officialArtworkUrl(member.pokemonId))
+    ? (member.shiny ? shinySpriteUrl(member.pokemonId) : frontSpriteUrl(member.pokemonId))
     : null
 
   const handleImport = async () => {
@@ -271,18 +271,17 @@ function MemberSlot({ member, onUpdate, onRemove, onViewDetail }) {
             )}
           </button>
 
-          {member.pokemonId && (
-            <button
-              onClick={() => onUpdate({ shiny: !member.shiny })}
-              className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                member.shiny
-                  ? 'border-yellow-400/60 text-yellow-300 bg-yellow-400/10'
-                  : 'border-border text-dim hover:text-sub'
-              }`}
-            >
-              ✨ {member.shiny ? 'Shiny' : 'Default'}
-            </button>
-          )}
+          <button
+            onClick={() => member.pokemonId && onUpdate({ shiny: !member.shiny })}
+            style={{ visibility: member.pokemonId ? 'visible' : 'hidden' }}
+            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+              member.shiny
+                ? 'border-yellow-400/60 text-yellow-300 bg-yellow-400/10'
+                : 'border-border text-dim hover:text-sub'
+            }`}
+          >
+            ✨ {member.shiny ? 'Shiny' : 'Default'}
+          </button>
         </div>
 
         <div className="flex-1 space-y-1.5">

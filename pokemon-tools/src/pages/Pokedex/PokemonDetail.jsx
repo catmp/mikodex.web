@@ -954,6 +954,19 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
               {/* ── OVERVIEW ─────────────────────────────────────────────── */}
               {activeTab === 'overview' && (
                 <>
+                  {/* Shiny toggle + hint — top right */}
+                  <div className="flex justify-end items-center gap-2 mb-1">
+                    <p className="text-dim text-[10px]">Middle-click sprite to add to a party</p>
+                    <button
+                      onClick={() => { setShiny((s) => !s); setImgError(false) }}
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                        shiny ? 'border-yellow-400 text-yellow-300 bg-yellow-400/10' : 'border-border2 text-sub hover:text-fg'
+                      }`}
+                    >
+                      ✨ {shiny ? 'Shiny' : 'Default'}
+                    </button>
+                  </div>
+
                   {/* Artwork */}
                   <div className="flex flex-col items-center gap-3">
                     <img
@@ -967,23 +980,6 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
                       className="w-48 h-48 object-contain cursor-pointer"
                       title="Middle-click to add to a party"
                     />
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => { setShiny((s) => !s); setImgError(false) }}
-                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                          shiny ? 'border-yellow-400 text-yellow-300 bg-yellow-400/10' : 'border-border2 text-sub hover:text-fg'
-                        }`}
-                      >
-                        ✨ {shiny ? 'Shiny' : 'Default'}
-                      </button>
-                      <button
-                        onClick={() => setAddToPartyOpen(true)}
-                        className="px-3 py-1 rounded-full text-xs font-medium border border-border2 text-sub hover:text-fg transition-colors"
-                      >
-                        + Add to party
-                      </button>
-                    </div>
-                    <p className="text-dim text-[10px]">Middle-click sprite to add to a party</p>
                   </div>
 
                   {/* Base stats */}
