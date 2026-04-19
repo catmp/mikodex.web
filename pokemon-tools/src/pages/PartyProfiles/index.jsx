@@ -144,7 +144,7 @@ function IdleSlot({ pokemonId, pokemonName, displayName, types, shiny, heldItem,
             <span
               key={t}
               className="text-[8px] font-semibold px-1.5 py-0.5 rounded-full capitalize"
-              style={{ backgroundColor: TYPE_COLORS[t]?.bg ?? '#888', color: TYPE_COLORS[t]?.text ?? '#fff' }}
+              style={{ backgroundColor: TYPE_COLORS[t]?.bg ?? '#888', color: '#fff' }}
             >
               {t}
             </span>
