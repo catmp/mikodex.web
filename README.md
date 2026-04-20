@@ -108,7 +108,7 @@ No environment variables or API keys required.
 - More PokeDex filtering options (search by number, alphabetical, learnable moves, etc.)
 
 **Major**
-- Better team building tools (member/set/synergy recommendations)
+- Better team building tools (member/set/synergy recommendations) reference: https://github.com/Andrew21P/ChampionsLab
 - Live Pokemon Champions and VGC data analysis tools
 - Items page
 - Nature chart page
