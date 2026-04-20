@@ -96,6 +96,7 @@ No environment variables or API keys required.
 - No easy way to remove EVs in EV training tool FIX: redesign whole page (keep SP from Pokemon Champions in mind)
 - Dex tracker does not reference regional dex and in some cases doesn't render at all FIX: Source PokeDex data by game (HGSS, ORAS, LGPE, etc.) instead of generation  
 - Under egg moves, only first 6 possible fathers are displayed FIX: expand breeders list when user clicks it
+- Evolution method renders inconsistently FIX: display method under the evolved Pokemon, rather than over the arrow
 
 ## Future Features
 
