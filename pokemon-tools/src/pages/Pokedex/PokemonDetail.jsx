@@ -1,13 +1,13 @@
 import { useEffect, useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { useQueries } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { X, ChevronRight } from 'lucide-react'
 import {
   usePokemonSpecies, useEvolutionChain,
   useMove, useMachine, useAbility, usePokemonEncounters,
 } from '../../hooks/usePokemon'
-import { getMove } from '../../api/moves'
-import { getMachine } from '../../api/moves'
+import { getMove, getMachine } from '../../api/moves'
+import { getPokemon } from '../../api/pokemon'
 import { useTypeChart } from '../../hooks/useTypeChart'
 import { useUserStore } from '../../store/userStore'
 import { useParties } from '../../hooks/useUserData'
@@ -48,6 +48,30 @@ function formatLocationName(name) {
 
 function bulbapediaLocationUrl(locationAreaName) {
   return `https://bulbapedia.bulbagarden.net/wiki/${formatLocationName(locationAreaName).replace(/ /g, '_')}`
+}
+
+// Converts a variety pokemon name (e.g. "ninetales-alola") + species name ("ninetales")
+// into a short human label ("Alolan"). Returns null for the default form.
+const VARIETY_SUFFIX_LABELS = {
+  'alola': 'Alolan',   'galar': 'Galarian', 'hisui': 'Hisuian',  'paldea': 'Paldean',
+  'mega': 'Mega',      'mega-x': 'Mega X',  'mega-y': 'Mega Y',  'primal': 'Primal',
+  'gmax': 'Gmax',      'normal': 'Normal',  'attack': 'Attack',  'defense': 'Defense',
+  'speed': 'Speed',    'heat': 'Heat',       'wash': 'Wash',      'frost': 'Frost',
+  'fan': 'Fan',        'mow': 'Mow',         'altered': 'Altered','origin': 'Origin',
+  'land': 'Land',      'sky': 'Sky',         'black': 'Black',   'white': 'White',
+  'incarnate': 'Incarnate', 'therian': 'Therian', 'aria': 'Aria', 'pirouette': 'Pirouette',
+  'confined': 'Confined',   'unbound': 'Unbound', 'shield': 'Shield', 'blade': 'Blade',
+  'midday': 'Midday',  'midnight': 'Midnight', 'dusk': 'Dusk',   'complete': 'Complete',
+  'dusk-mane': 'Dusk Mane', 'dawn-wings': 'Dawn Wings', 'ultra': 'Ultra',
+  'male': '♂',         'female': '♀',        '10': '10%',         '50': '50%',
+  'original': 'Original',   'resolute': 'Resolute', 'pirouette': 'Pirouette',
+}
+
+function formatVarietyLabel(name, speciesName) {
+  if (name === speciesName) return null
+  const suffix = name.startsWith(speciesName + '-') ? name.slice(speciesName.length + 1) : name
+  return VARIETY_SUFFIX_LABELS[suffix]
+    ?? suffix.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
 // ── FloatingTooltip ────────────────────────────────────────────────────────
@@ -746,15 +770,184 @@ function StatBar({ statKey, value }) {
   )
 }
 
-function flattenChain(chain) {
-  const result = []
-  function walk(node) {
-    const id = parseInt(node.species.url.split('/').filter(Boolean).at(-1), 10)
-    result.push({ name: node.species.name, id })
-    for (const next of node.evolves_to) walk(next)
+// Converts a PokeAPI evolution_details array into a short human-readable label.
+function formatEvoTrigger(details) {
+  if (!details?.length) return null
+  const d = details[0]
+  const trigger = d.trigger?.name
+  const parts = []
+
+  if (trigger === 'use-item')            return d.item?.name ? `Use ${formatName(d.item.name)}` : 'Use item'
+  if (trigger === 'trade') {
+    if (d.held_item?.name)    return `Trade w/ ${formatName(d.held_item.name)}`
+    if (d.trade_species?.name) return `Trade for ${formatName(d.trade_species.name)}`
+    return 'Trade'
   }
-  walk(chain)
-  return result
+  if (trigger === 'shed')                return 'Shed'
+  if (trigger === 'take-damage')         return 'Take damage'
+  if (trigger === 'three-critical-hits') return '3 crit hits'
+  if (trigger === 'agile-style-move')    return 'Agile style ×20'
+  if (trigger === 'strong-style-move')   return 'Strong style ×20'
+  if (trigger === 'recoil-damage')       return 'Recoil damage'
+
+  // level-up — enumerate non-null conditions
+  if (d.min_level)             parts.push(`Lv. ${d.min_level}`)
+  if (d.min_happiness)         parts.push('Friendship')
+  if (d.min_affection)         parts.push('Affection')
+  if (d.held_item?.name)       parts.push(formatName(d.held_item.name))
+  if (d.known_move?.name)      parts.push(`knows ${formatName(d.known_move.name)}`)
+  if (d.known_move_type?.name) parts.push(`${formatName(d.known_move_type.name)}-type move`)
+  if (d.location?.name)        parts.push(formatName(d.location.name))
+  if (d.time_of_day)           parts.push(d.time_of_day)
+  if (d.gender === 1)          parts.push('♀')
+  if (d.gender === 2)          parts.push('♂')
+  if (d.needs_overworld_rain)  parts.push('rain')
+  if (d.turn_upside_down)      parts.push('upside down')
+  if (d.relative_physical_stats === 1)  parts.push('Atk > Def')
+  if (d.relative_physical_stats === -1) parts.push('Atk < Def')
+  if (d.relative_physical_stats === 0)  parts.push('Atk = Def')
+  if (d.party_species?.name)   parts.push(`w/ ${formatName(d.party_species.name)}`)
+  if (d.party_type?.name)      parts.push(`${formatName(d.party_type.name)}-type in party`)
+  return parts.length ? parts.join(' · ') : 'Level up'
+}
+
+function buildEvoTree(chain) {
+  function walk(node, trigger) {
+    const id = parseInt(node.species.url.split('/').filter(Boolean).at(-1), 10)
+    return {
+      id,
+      name: node.species.name,
+      trigger,
+      branches: node.evolves_to.map((next) =>
+        walk(next, formatEvoTrigger(next.evolution_details))
+      ),
+    }
+  }
+  return walk(chain, null)
+}
+
+// Returns true if targetId exists anywhere in a subtree.
+function containsId(node, targetId) {
+  if (node.id === targetId) return true
+  return node.branches.some((b) => containsId(b, targetId))
+}
+
+// Fixed-width arrow column — trigger text occupies a consistent height so arrows
+// stay vertically aligned across sibling rows regardless of label length.
+function ArrowCol({ trigger }) {
+  return (
+    <div className="flex flex-col items-center shrink-0 w-20">
+      <span className="text-dim text-[10px] text-center leading-tight w-full h-8 flex items-end justify-center pb-0.5">
+        {trigger ?? ''}
+      </span>
+      <ChevronRight size={14} className="text-dim" />
+    </div>
+  )
+}
+
+// Renders one node of the evolution tree recursively.
+//  1 branch  → horizontal chain
+//  2 branches → stacked pair with aligned arrows
+//  3+ branches → one shown at a time, auto-cycling every 2.5 s
+//               (static if currentId is inside a specific branch)
+function EvoNode({ node, currentId, onSelectPokemon }) {
+  const isCurrent      = node.id === currentId
+  const branchCount    = node.branches.length
+
+  // Which branch (if any) contains currentId — used to pin the display statically
+  const currentBranchIdx = node.branches.findIndex((b) => containsId(b, currentId))
+  const hasCurrentBranch = currentBranchIdx !== -1
+
+  const [cycleIdx, setCycleIdx] = useState(hasCurrentBranch ? currentBranchIdx : 0)
+
+  // Auto-advance for nodes with 3+ branches when we're not locked to one path
+  useEffect(() => {
+    if (branchCount < 3 || hasCurrentBranch) return
+    const t = setInterval(() => setCycleIdx((i) => (i + 1) % branchCount), 2500)
+    return () => clearInterval(t)
+  }, [branchCount, hasCurrentBranch])
+
+  const btn = (
+    <button
+      onClick={() => !isCurrent && onSelectPokemon?.(node.id)}
+      className={`flex flex-col items-center rounded-xl p-2 transition-all shrink-0 ${
+        isCurrent
+          ? 'ring-2 ring-accent bg-accent2 cursor-default'
+          : 'hover:bg-card cursor-pointer hover:scale-105'
+      }`}
+    >
+      <img
+        src={frontSpriteUrl(node.id)}
+        alt={formatName(node.name)}
+        className="w-14 h-14 object-contain"
+        loading="lazy"
+      />
+      <span className={`text-[11px] mt-0.5 text-center leading-tight max-w-[64px] min-h-[2em] ${
+        isCurrent ? 'text-accent font-semibold' : 'text-sub'
+      }`}>
+        {formatName(node.name)}
+      </span>
+    </button>
+  )
+
+  if (branchCount === 0) return btn
+
+  // ── 1 branch: simple horizontal chain ─────────────────────────────────────
+  if (branchCount === 1) {
+    const b = node.branches[0]
+    return (
+      <div className="flex items-center">
+        {btn}
+        <ArrowCol trigger={b.trigger} />
+        <EvoNode node={b} currentId={currentId} onSelectPokemon={onSelectPokemon} />
+      </div>
+    )
+  }
+
+  // ── 3+ branches: cycle one at a time ──────────────────────────────────────
+  if (branchCount >= 3) {
+    const activeIdx = hasCurrentBranch ? currentBranchIdx : cycleIdx
+    const b = node.branches[activeIdx]
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex items-center">
+          {btn}
+          <ArrowCol trigger={b.trigger} />
+          <EvoNode node={b} currentId={currentId} onSelectPokemon={onSelectPokemon} />
+        </div>
+        {/* Dot indicators — clickable, hidden when locked to a specific path */}
+        {!hasCurrentBranch && (
+          <div className="flex gap-1.5">
+            {node.branches.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setCycleIdx(i)}
+                aria-label={`Show evolution ${i + 1}`}
+                className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                  i === activeIdx ? 'bg-accent' : 'bg-border2 hover:bg-border'
+                }`}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── 2 branches: stacked pair, arrows aligned via fixed-height ArrowCol ────
+  return (
+    <div className="flex items-center">
+      {btn}
+      <div className="flex flex-col gap-3">
+        {node.branches.map((b) => (
+          <div key={b.id} className="flex items-center">
+            <ArrowCol trigger={b.trigger} />
+            <EvoNode node={b} currentId={currentId} onSelectPokemon={onSelectPokemon} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 // ── AddToPartyModal ────────────────────────────────────────────────────────
@@ -788,7 +981,7 @@ function AddToPartyModal({ pokemonId, pokemonName, onClose }) {
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative bg-surface border border-border2 rounded-xl p-5 w-72 shadow-2xl z-10">
         <div className="flex items-center justify-between mb-4">
@@ -861,21 +1054,23 @@ function AddToPartyModal({ pokemonId, pokemonName, onClose }) {
 const TABS = ['overview', 'moves', 'encounters']
 
 export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initialTab = 'overview' }) {
-  const [shiny, setShiny]               = useState(false)
-  const [imgError, setImgError]         = useState(false)
-  const [activeTab, setActiveTab]       = useState(initialTab)
-  const [prevId, setPrevId]             = useState(pokemon.id)
-  const [addToPartyOpen, setAddToPartyOpen] = useState(false)
+  const [shiny, setShiny]                       = useState(false)
+  const [imgError, setImgError]                 = useState(false)
+  const [activeTab, setActiveTab]               = useState(initialTab)
+  const [prevId, setPrevId]                     = useState(pokemon.id)
+  const [addToPartyOpen, setAddToPartyOpen]     = useState(false)
+  const [selectedVarietyName, setSelectedVarietyName] = useState(null)
 
   const activeGeneration = useUserStore((s) => s.activeGeneration)
 
-  // Reset state when the displayed pokemon changes (store-previous-render pattern)
+  // Reset all volatile state when the base species changes
   if (prevId !== pokemon.id) {
     setPrevId(pokemon.id)
     setActiveTab(initialTab)
     setShiny(false)
     setImgError(false)
     setAddToPartyOpen(false)
+    setSelectedVarietyName(null)
   }
 
   useEffect(() => {
@@ -889,11 +1084,30 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
     }
   }, [onClose])
 
-  const types = pokemon.types.map((t) => t.type.name)
-
   const { data: species, isLoading: speciesLoading } = usePokemonSpecies(pokemon.id)
   const { data: evoChain } = useEvolutionChain(species?.evolution_chain?.url)
   const { data: rawMatrix } = useTypeChart()
+
+  // Fetch the selected alternate-form data; falls back to the default pokemon prop
+  const { data: varietyData } = useQuery({
+    queryKey: ['pokemon', selectedVarietyName],
+    queryFn:  () => getPokemon(selectedVarietyName),
+    enabled:  Boolean(selectedVarietyName),
+    staleTime: Infinity,
+  })
+  const activePokemon = (selectedVarietyName && varietyData) ? varietyData : pokemon
+
+  // Build the form selector list once species is loaded
+  const varieties = useMemo(() => {
+    if (!species?.varieties || species.varieties.length <= 1) return []
+    return species.varieties.map((v) => ({
+      name:      v.pokemon.name,
+      label:     formatVarietyLabel(v.pokemon.name, species.name) ?? 'Default',
+      isDefault: v.is_default,
+    }))
+  }, [species])
+
+  const types = activePokemon.types.map((t) => t.type.name)
 
   const matrix = useMemo(
     () => patchMatrixForGen(rawMatrix, activeGeneration),
@@ -904,12 +1118,16 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
   const resistances = matrix ? getResistances(matrix, types) : []
   const immunities  = matrix ? getImmunities(matrix, types)  : []
 
-  const evolution  = evoChain ? flattenChain(evoChain.chain) : []
-  const totalStats = pokemon.stats.reduce((s, { base_stat }) => s + base_stat, 0)
-  const artworkUrl = shiny ? shinyArtworkUrl(pokemon.id) : officialArtworkUrl(pokemon.id)
+  const evoRoot    = evoChain ? buildEvoTree(evoChain.chain) : null
+  const totalStats = activePokemon.stats.reduce((s, { base_stat }) => s + base_stat, 0)
+  const artworkUrl = shiny ? shinyArtworkUrl(activePokemon.id) : officialArtworkUrl(activePokemon.id)
+
+  // Header display name: prepend form label when an alternate variety is active
+  const formLabel   = selectedVarietyName ? formatVarietyLabel(selectedVarietyName, species?.name ?? pokemon.name) : null
+  const displayName = formLabel ? `${formLabel} ${formatName(pokemon.name)}` : formatName(pokemon.name)
 
   return (
-    <div className="fixed inset-0 z-50" aria-modal="true" role="dialog" aria-label={`${formatName(pokemon.name)} details`}>
+    <div className="fixed inset-0 z-[60]" aria-modal="true" role="dialog" aria-label={`${formatName(pokemon.name)} details`}>
       <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
 
       <div className="absolute inset-0 overflow-y-auto">
@@ -922,8 +1140,29 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
             <div className="sticky top-0 bg-surface rounded-t-2xl z-10 border-b border-border">
               <div className="flex items-start justify-between p-5 pb-3">
                 <div>
-                  <span className="text-dim font-mono text-xs">#{padId(pokemon.id)}</span>
-                  <h2 className="text-fg font-bold text-2xl">{formatName(pokemon.name)}</h2>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-dim font-mono text-xs">#{padId(pokemon.id)}</span>
+                    {varieties.length > 0 && varieties.map((v) => {
+                      const isActive = v.isDefault ? !selectedVarietyName : selectedVarietyName === v.name
+                      return (
+                        <button
+                          key={v.name}
+                          onClick={() => {
+                            setSelectedVarietyName(v.isDefault ? null : v.name)
+                            setImgError(false)
+                          }}
+                          className={`px-2.5 py-0.5 rounded-full text-[11px] border transition-colors ${
+                            isActive
+                              ? 'border-accent text-accent bg-accent2'
+                              : 'border-border text-sub hover:text-fg hover:border-border2'
+                          }`}
+                        >
+                          {v.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <h2 className="text-fg font-bold text-2xl">{displayName}</h2>
                   <div className="flex gap-1.5 mt-1.5">
                     {types.map((t) => <TypeBadge key={t} type={t} size="sm" />)}
                   </div>
@@ -970,14 +1209,13 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
                   {/* Artwork */}
                   <div className="flex flex-col items-center gap-3">
                     <img
-                      src={imgError ? frontSpriteUrl(pokemon.id) : artworkUrl}
-                      alt={formatName(pokemon.name)}
+                      src={imgError ? frontSpriteUrl(activePokemon.id) : artworkUrl}
+                      alt={displayName}
                       onError={() => setImgError(true)}
                       onMouseDown={(e) => {
                         if (e.button === 1) { e.preventDefault(); setAddToPartyOpen(true) }
                       }}
-                      key={artworkUrl}
-                      className="w-48 h-48 object-contain cursor-pointer"
+                      className="w-48 h-48 object-contain cursor-pointer transition-opacity duration-150"
                       title="Middle-click to add to a party"
                     />
                   </div>
@@ -986,7 +1224,7 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
                   <section>
                     <h3 className="text-fg font-semibold mb-3">Base Stats</h3>
                     <div className="space-y-2">
-                      {pokemon.stats.map(({ stat, base_stat }) => (
+                      {activePokemon.stats.map(({ stat, base_stat }) => (
                         <StatBar key={stat.name} statKey={stat.name} value={base_stat} />
                       ))}
                     </div>
@@ -1035,7 +1273,7 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
                   <section>
                     <h3 className="text-fg font-semibold mb-3">Abilities</h3>
                     <div className="flex flex-wrap gap-2">
-                      {pokemon.abilities.map(({ ability, is_hidden }) => (
+                      {activePokemon.abilities.map(({ ability, is_hidden }) => (
                         <AbilityBadge key={ability.name} abilityName={ability.name} isHidden={is_hidden} />
                       ))}
                     </div>
@@ -1045,9 +1283,9 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
                   {!speciesLoading && species && (
                     <section className="grid grid-cols-3 gap-3">
                       {[
-                        { label: 'Height',   value: `${(pokemon.height / 10).toFixed(1)} m` },
-                        { label: 'Weight',   value: `${(pokemon.weight / 10).toFixed(1)} kg` },
-                        { label: 'Base Exp', value: pokemon.base_experience ?? '—' },
+                        { label: 'Height',   value: `${(activePokemon.height / 10).toFixed(1)} m` },
+                        { label: 'Weight',   value: `${(activePokemon.weight / 10).toFixed(1)} kg` },
+                        { label: 'Base Exp', value: activePokemon.base_experience ?? '—' },
                       ].map(({ label, value }) => (
                         <div key={label} className="bg-card rounded-lg p-3 text-center border border-border">
                           <p className="text-dim text-xs mb-1">{label}</p>
@@ -1057,34 +1295,21 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
                     </section>
                   )}
 
-                  {/* Evolution chain — larger sprites, clickable */}
-                  {evolution.length > 1 && (
+                  {/* Evolution chain — tree layout handles branching (Eevee, Kirlia, etc.) */}
+                  {evoRoot?.branches.length > 0 && (
                     <section>
                       <h3 className="text-fg font-semibold mb-4">Evolution Chain</h3>
-                      <div className="flex items-center gap-2 flex-wrap justify-center">
-                        {evolution.map((stage, i) => (
-                          <div key={stage.id} className="flex items-center gap-2">
-                            {i > 0 && <ChevronRight size={18} className="text-dim shrink-0" />}
-                            <button
-                              onClick={() => stage.id !== pokemon.id && onSelectPokemon?.(stage.id)}
-                              className={`flex flex-col items-center rounded-xl p-2 transition-all ${
-                                stage.id === pokemon.id
-                                  ? 'ring-2 ring-accent bg-accent2 cursor-default'
-                                  : 'hover:bg-card cursor-pointer hover:scale-105'
-                              }`}
-                            >
-                              <img
-                                src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${stage.id}.png`}
-                                alt={stage.name}
-                                className="w-20 h-20 object-contain"
-                                loading="lazy"
-                              />
-                              <span className={`text-xs mt-0.5 ${stage.id === pokemon.id ? 'text-accent font-semibold' : 'text-sub'}`}>
-                                {formatName(stage.name)}
-                              </span>
-                            </button>
-                          </div>
-                        ))}
+                      {/*
+                        overflow-hidden + p-3: ring (2px box-shadow) and scale-105 hover
+                        (~4px visual overflow) both stay inside the 12px padding boundary,
+                        so neither clips the ring nor triggers a scrollbar on hover.
+                      */}
+                      <div className="flex justify-center overflow-hidden p-3">
+                        <EvoNode
+                          node={evoRoot}
+                          currentId={pokemon.id}
+                          onSelectPokemon={onSelectPokemon}
+                        />
                       </div>
                     </section>
                   )}
@@ -1100,10 +1325,10 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
                       : 'No generation selected — showing Gen IX. Hover a move name for details.'}
                   </p>
                   <Learnset
-                    moves={pokemon.moves}
+                    moves={activePokemon.moves}
                     activeGeneration={activeGeneration}
                     onSelectPokemon={onSelectPokemon}
-                    currentPokemonId={pokemon.id}
+                    currentPokemonId={activePokemon.id}
                   />
                 </section>
               )}
@@ -1116,7 +1341,7 @@ export default function PokemonDetail({ pokemon, onClose, onSelectPokemon, initi
                       ? `Wild encounter locations in Generation ${activeGeneration}.`
                       : 'Wild encounter locations across all generations (up to Gen VII).'}
                   </p>
-                  <EncounterList pokemonId={pokemon.id} activeGeneration={activeGeneration} />
+                  <EncounterList pokemonId={activePokemon.id} activeGeneration={activeGeneration} />
                 </section>
               )}
             </div>

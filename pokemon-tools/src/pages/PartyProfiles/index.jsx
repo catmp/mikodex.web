@@ -210,7 +210,7 @@ function IdleSlot({ pokemonId, pokemonName, displayName, types, shiny, heldItem,
   )
 }
 
-function IdleMode({ party, onClose, onViewDetail }) {
+function IdleMode({ party, onClose, onViewDetail, detailOpen }) {
   const [infoMode, setInfoMode] = useState(0)
   const [copied, setCopied]     = useState(false)
 
@@ -239,12 +239,13 @@ function IdleMode({ party, onClose, onViewDetail }) {
 
   useEffect(() => {
     const handler = (e) => {
+      if (detailOpen) return // PokemonDetail owns the keyboard while it's open
       if (e.key === 'Escape') { onClose(); return }
       if (e.key === ' ') { e.preventDefault(); setInfoMode((m) => (m + 1) % 4) }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [onClose, detailOpen])
 
   return createPortal(
     <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center">
@@ -837,7 +838,8 @@ export default function PartyProfiles() {
         <IdleMode
           party={activeIdleParty}
           onClose={closeIdle}
-          onViewDetail={(id) => { closeIdle(); setDetailId(id) }}
+          onViewDetail={(id) => setDetailId(id)}
+          detailOpen={Boolean(detailId)}
         />
       )}
 
