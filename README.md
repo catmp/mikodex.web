@@ -95,10 +95,25 @@ No environment variables or API keys required.
 
 ## Known Issues
 
-<!-- Add known issues here -->
+- Damage calculator does not show megas FIX: will revamp whole page using: https://github.com/nerd-of-now/NCP-VGC-Damage-Calculator
+- Various sprites (paldean shinies, regional forms, megas) display at different sizes FIX: standardize sprite rendering across whole website
+- Poor mobile support FIX: modify layouts for mobile support in mind
+- No easy way to remove EVs in EV training tool FIX: redesign whole page 
+
+## Future Features
+
+**Minor**
+- Animated starter sprites on landing page
+- More granular control of what generation each tool references
+
+**Major**
+- Pop out of each tool
+- Consolidate team builder and party profiles
+- better team building support tools
+- Live Pokemon Champions and VGC data analysis tools 
 
 ---
 
 ## License
 
-This project is for portfolio and educational purposes.
+MIT License.
