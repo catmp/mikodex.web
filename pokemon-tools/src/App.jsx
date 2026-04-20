@@ -5,7 +5,6 @@ import GenerationSelect from './pages/GenerationSelect'
 import Pokedex from './pages/Pokedex'
 import TypeChart from './pages/TypeChart'
 import DamageCalc from './pages/DamageCalc'
-import ShinyGallery from './pages/ShinyGallery'
 import TeamBuilder from './pages/TeamBuilder'
 import PartyProfiles from './pages/PartyProfiles'
 import EVTracker from './pages/EVTracker'
@@ -28,7 +27,6 @@ export default function App() {
         <Route path="pokedex"        element={<Pokedex />} />
         <Route path="type-chart"     element={<TypeChart />} />
         <Route path="damage-calc"    element={<DamageCalc />} />
-        <Route path="shiny-gallery"  element={<ShinyGallery />} />
         <Route path="team-builder"   element={<TeamBuilder />} />
         <Route path="party-profiles" element={<PartyProfiles />} />
         <Route path="ev-tracker"     element={<EVTracker />} />

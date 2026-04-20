@@ -23,7 +23,7 @@ export const useUserStore = create(
       // ── Party Profiles ────────────────────────────────────────────────
       parties: [],
       addParty: (name) =>
-        set((s) => ({ parties: [...s.parties, { id: uid(), name, members: [] }] })),
+        set((s) => ({ parties: [...s.parties, { id: uid(), name, members: [], targetGen: null }] })),
       updateParty: (id, updates) =>
         set((s) => ({ parties: s.parties.map((p) => (p.id === id ? { ...p, ...updates } : p)) })),
       deleteParty: (id) =>
@@ -31,7 +31,7 @@ export const useUserStore = create(
       restoreParty: (party) =>
         set((s) => ({ parties: [...s.parties, party] })),
       addPartyWithMembers: (name, members) =>
-        set((s) => ({ parties: [...s.parties, { id: uid(), name, members }] })),
+        set((s) => ({ parties: [...s.parties, { id: uid(), name, members, targetGen: null }] })),
 
       // ── EV Tracker ────────────────────────────────────────────────────
       evData: {},

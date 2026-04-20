@@ -12,7 +12,12 @@ import TypeBadge from '../../components/TypeBadge'
 import { TYPE_LIST, GENERATIONS } from '../../constants/types'
 import { getType } from '../../api/types'
 
-const PER_PAGE = 24
+const PER_PAGE_OPTIONS = [
+  { label: '24',  value: 24  },
+  { label: '48',  value: 48  },
+  { label: '96',  value: 96  },
+  { label: 'All', value: 0   },
+]
 
 function FilterChip({ label, active, onClick }) {
   return (
@@ -33,7 +38,6 @@ export default function Pokedex() {
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedId = searchParams.get('selected')
 
-  // Default gen filter to the active generation set on the landing page
   const activeGeneration = useUserStore((s) => s.activeGeneration)
   const genInfo          = activeGeneration ? GEN_INFO[activeGeneration] : null
 
@@ -43,8 +47,9 @@ export default function Pokedex() {
   const [genFilter, setGenFilter]       = useState(activeGeneration ?? '')
   const [page, setPage]                 = useState(0)
   const [showFilters, setShowFilters]   = useState(false)
+  const [spriteMode, setSpriteMode]     = useState('normal') // 'normal' | 'shiny' | 'both'
+  const [perPage, setPerPage]           = useState(24)       // 0 = all
 
-  // 300 ms debounce on text search
   useEffect(() => {
     const t = setTimeout(() => { setDebounced(search); setPage(0) }, 300)
     return () => clearTimeout(t)
@@ -52,7 +57,6 @@ export default function Pokedex() {
 
   const { data: allPokemon, isLoading: listLoading } = usePokemonList()
 
-  // Type filter: fetch all Pokémon for the selected type from PokéAPI
   const { data: typeSet } = useQuery({
     queryKey: ['type-pokemon-set', typeFilter],
     queryFn: async () => {
@@ -84,9 +88,12 @@ export default function Pokedex() {
     return result
   }, [allPokemon, debouncedSearch, typeFilter, typeSet, genFilter])
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PER_PAGE))
+  const effectivePerPage = perPage === 0 ? filtered.length || 1 : perPage
+  const pageCount = Math.max(1, Math.ceil(filtered.length / effectivePerPage))
   const safePage  = Math.min(page, pageCount - 1)
-  const visible   = filtered.slice(safePage * PER_PAGE, (safePage + 1) * PER_PAGE)
+  const visible   = perPage === 0
+    ? filtered
+    : filtered.slice(safePage * effectivePerPage, (safePage + 1) * effectivePerPage)
 
   const { data: selectedPokemon } = usePokemon(selectedId ? Number(selectedId) : null)
 
@@ -96,12 +103,15 @@ export default function Pokedex() {
   const clearFilters = () => { setTypeFilter(''); setGenFilter(''); setSearch('') }
   const hasFilters   = typeFilter || genFilter || debouncedSearch
 
-  // Is the gen filter different from what was set by the active generation?
   const genOverridden = genFilter !== (activeGeneration ?? '')
+
+  // 'both' mode uses a wider card — reduce columns so each card stays readable
+  const gridCols = spriteMode === 'both'
+    ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+    : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6'
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
-      {/* Page title + gen mode badge */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-fg text-2xl font-bold">Pokédex</h1>
@@ -119,7 +129,7 @@ export default function Pokedex() {
         )}
       </div>
 
-      {/* Search + filter bar */}
+      {/* Search + filter toggle */}
       <div className="flex gap-2 mb-4">
         <div className="relative flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
@@ -144,7 +154,7 @@ export default function Pokedex() {
         <button
           onClick={() => setShowFilters((v) => !v)}
           className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
-            showFilters || hasFilters
+            showFilters || hasFilters || spriteMode !== 'normal'
               ? 'border-accent text-accent bg-accent2'
               : 'border-border text-sub hover:text-fg hover:border-border2'
           }`}
@@ -152,13 +162,26 @@ export default function Pokedex() {
         >
           <SlidersHorizontal size={15} />
           <span className="hidden sm:inline">Filters</span>
-          {hasFilters && <span className="text-[10px] bg-accent text-white rounded-full w-4 h-4 flex items-center justify-center">!</span>}
+          {(hasFilters || spriteMode !== 'normal') && (
+            <span className="text-[10px] bg-accent text-white rounded-full w-4 h-4 flex items-center justify-center">!</span>
+          )}
         </button>
       </div>
 
       {/* Filter panel */}
       {showFilters && (
         <div className="bg-surface border border-border rounded-xl p-4 mb-5 space-y-4">
+          {/* Sprite mode */}
+          <div>
+            <p className="text-sub text-xs font-medium mb-2">Sprites</p>
+            <div className="flex gap-1.5">
+              <FilterChip label="Default" active={spriteMode === 'normal'} onClick={() => setSpriteMode('normal')} />
+              <FilterChip label="✨ Shiny" active={spriteMode === 'shiny'}  onClick={() => setSpriteMode('shiny')} />
+              <FilterChip label="Both"    active={spriteMode === 'both'}   onClick={() => setSpriteMode('both')} />
+            </div>
+          </div>
+
+          {/* Generation */}
           <div>
             <p className="text-sub text-xs font-medium mb-2">Generation</p>
             <div className="flex flex-wrap gap-1.5">
@@ -173,6 +196,8 @@ export default function Pokedex() {
               ))}
             </div>
           </div>
+
+          {/* Type */}
           <div>
             <p className="text-sub text-xs font-medium mb-2">Type</p>
             <div className="flex flex-wrap gap-1.5">
@@ -188,6 +213,7 @@ export default function Pokedex() {
               ))}
             </div>
           </div>
+
           {hasFilters && (
             <button onClick={clearFilters} className="text-dim text-xs hover:text-sub underline">
               Clear all filters
@@ -198,7 +224,7 @@ export default function Pokedex() {
 
       {/* Loading skeletons */}
       {listLoading && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        <div className={`grid ${gridCols} gap-3`}>
           {Array.from({ length: 24 }).map((_, i) => (
             <div key={i} className="bg-surface rounded-xl p-4 animate-pulse aspect-[3/4]" />
           ))}
@@ -217,34 +243,50 @@ export default function Pokedex() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            <div className={`grid ${gridCols} gap-3`}>
               {visible.map((pokemon) => (
-                <PokemonCard key={pokemon.id} pokemon={pokemon} onClick={openDetail} />
+                <PokemonCard key={pokemon.id} pokemon={pokemon} onClick={openDetail} spriteMode={spriteMode} />
               ))}
             </div>
           )}
 
-          {pageCount > 1 && (
-            <div className="flex items-center justify-center gap-3 mt-8">
-              <button
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                disabled={safePage === 0}
-                aria-label="Previous page"
-                className="p-2 rounded-lg border border-border text-sub hover:text-fg hover:border-border2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          {/* Pagination + per-page control */}
+          <div className="flex items-center justify-between mt-8 gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-dim text-xs">Per page:</span>
+              <select
+                value={perPage}
+                onChange={(e) => { setPerPage(Number(e.target.value)); setPage(0) }}
+                className="bg-surface border border-border rounded-lg px-2 py-1 text-xs text-fg focus:outline-none"
               >
-                <ChevronLeft size={18} />
-              </button>
-              <span className="text-sub text-sm">{safePage + 1} / {pageCount}</span>
-              <button
-                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-                disabled={safePage === pageCount - 1}
-                aria-label="Next page"
-                className="p-2 rounded-lg border border-border text-sub hover:text-fg hover:border-border2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronRight size={18} />
-              </button>
+                {PER_PAGE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
             </div>
-          )}
+
+            {perPage !== 0 && pageCount > 1 && (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={safePage === 0}
+                  aria-label="Previous page"
+                  className="p-2 rounded-lg border border-border text-sub hover:text-fg hover:border-border2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <span className="text-sub text-sm">{safePage + 1} / {pageCount}</span>
+                <button
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                  disabled={safePage === pageCount - 1}
+                  aria-label="Next page"
+                  className="p-2 rounded-lg border border-border text-sub hover:text-fg hover:border-border2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            )}
+          </div>
         </>
       )}
 

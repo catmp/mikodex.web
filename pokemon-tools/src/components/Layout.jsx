@@ -1,6 +1,6 @@
 import { Outlet, NavLink, Link, useLocation } from 'react-router-dom'
 import {
-  BookOpen, Grid3X3, Zap, Sparkles, Users,
+  BookOpen, Grid3X3, Zap, Users,
   UserCheck, BarChart2, CheckSquare, Globe,
 } from 'lucide-react'
 import { useUserStore } from '../store/userStore'
@@ -10,7 +10,6 @@ const NAV = [
   { to: '/pokedex',        icon: BookOpen,    label: 'Pokédex' },
   { to: '/type-chart',     icon: Grid3X3,     label: 'Type Chart' },
   { to: '/damage-calc',    icon: Zap,         label: 'Damage Calc' },
-  { to: '/shiny-gallery',  icon: Sparkles,    label: 'Shiny Gallery' },
   { to: '/team-builder',   icon: Users,       label: 'Team Builder' },
   { to: '/party-profiles', icon: UserCheck,   label: 'Party Profiles' },
   { to: '/ev-tracker',     icon: BarChart2,   label: 'EV Tracker' },

@@ -10,7 +10,7 @@ import PokemonDetail from '../Pokedex/PokemonDetail'
 import { frontSpriteUrl, shinySpriteUrl, formatName } from '../../utils/formatting'
 import { getPokemon } from '../../api/pokemon'
 import { parseShowdownSet } from '../../utils/parseShowdown'
-import { TYPE_COLORS } from '../../constants/types'
+import { TYPE_COLORS, GENERATIONS } from '../../constants/types'
 
 const NATURES = [
   'Hardy','Lonely','Brave','Adamant','Naughty','Bold','Docile','Relaxed',
@@ -20,6 +20,32 @@ const NATURES = [
 
 const EMPTY_MEMBER = {
   pokemonId: null, nickname: '', nature: '', heldItem: '', notes: '', shiny: false,
+}
+
+// PokeAPI `past_types` entries mean "these types applied up to and including [generation]".
+// Walk oldest-first and return the first entry whose generation index >= targetGen index.
+const GEN_ORDER = [
+  'generation-i','generation-ii','generation-iii','generation-iv',
+  'generation-v','generation-vi','generation-vii','generation-viii','generation-ix',
+]
+const NUM_TO_GEN_NAME = {
+  '1':'generation-i','2':'generation-ii','3':'generation-iii','4':'generation-iv',
+  '5':'generation-v','6':'generation-vi','7':'generation-vii','8':'generation-viii','9':'generation-ix',
+}
+function getTypesForGen(pokemon, gen) {
+  if (!pokemon) return []
+  const current = pokemon.types.slice().sort((a, b) => a.slot - b.slot).map((t) => t.type.name)
+  if (!gen) return current
+  const targetGenName = NUM_TO_GEN_NAME[String(gen)]
+  if (!targetGenName) return current
+  const targetIdx = GEN_ORDER.indexOf(targetGenName)
+  for (const entry of (pokemon.past_types ?? [])) {
+    const entryIdx = GEN_ORDER.indexOf(entry.generation.name)
+    if (targetIdx <= entryIdx) {
+      return entry.types.slice().sort((a, b) => a.slot - b.slot).map((t) => t.type.name)
+    }
+  }
+  return current
 }
 
 const STAT_ABBR = {
@@ -75,9 +101,13 @@ function extractMoves(notes) {
     .filter(Boolean)
 }
 
+const IDLE_CONTAINER = 192
+
 function IdleSlot({ pokemonId, pokemonName, displayName, types, shiny, heldItem, moves, infoMode, onViewDetail }) {
   const [spritePhase, setSpritePhase] = useState('gif')
   const [displaySrc, setDisplaySrc]   = useState('')
+  // Natural pixel dimensions read on load — used to render at 2× while preserving relative sizes.
+  const [spriteSize, setSpriteSize]   = useState(null)
 
   const showdownName = (pokemonName ?? String(pokemonId)).replace(/-/g, '')
   const gifUrl = shiny
@@ -87,12 +117,18 @@ function IdleSlot({ pokemonId, pokemonName, displayName, types, shiny, heldItem,
     ? `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/shiny/${pokemonId}.png`
     : `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokemonId}.png`
 
-  // Defer src assignment to after mount so the browser always starts GIF from frame 1.
-  // If we set src during render, cached GIFs resume from a mid-animation frame and appear static.
+  // Defer src assignment so the browser always starts GIF animation from frame 1.
   useEffect(() => {
     setSpritePhase('gif')
     setDisplaySrc(gifUrl)
+    setSpriteSize(null)
   }, [gifUrl])
+
+  const handleLoad = (e) => {
+    const w = Math.min(e.target.naturalWidth  * 2, IDLE_CONTAINER)
+    const h = Math.min(e.target.naturalHeight * 2, IDLE_CONTAINER)
+    setSpriteSize({ w, h })
+  }
 
   const color1 = TYPE_COLORS[types[0]]?.bg ?? '#ffffff'
   const color2 = types[1] ? (TYPE_COLORS[types[1]]?.bg ?? color1) : null
@@ -111,11 +147,10 @@ function IdleSlot({ pokemonId, pokemonName, displayName, types, shiny, heldItem,
   }
 
   return (
-    <div className="flex flex-col items-center gap-1.5 w-24">
-      {/* Fixed-size container — sprite renders at natural size, never upscaled */}
+    <div className="flex flex-col items-center gap-3 w-48">
       <div
         className="flex items-center justify-center cursor-pointer"
-        style={{ width: 96, height: 96 }}
+        style={{ width: IDLE_CONTAINER, height: IDLE_CONTAINER }}
         onMouseDown={middleClick}
         title="Middle-click to view details"
       >
@@ -123,27 +158,35 @@ function IdleSlot({ pokemonId, pokemonName, displayName, types, shiny, heldItem,
           <img
             src={displaySrc}
             alt={displayName}
-            style={{ maxWidth: '100%', maxHeight: '100%', imageRendering: 'pixelated', objectFit: 'contain' }}
+            style={{
+              width:  spriteSize ? spriteSize.w : 'auto',
+              height: spriteSize ? spriteSize.h : 'auto',
+              maxWidth: '100%',
+              maxHeight: '100%',
+              imageRendering: 'pixelated',
+              objectFit: 'contain',
+            }}
+            onLoad={handleLoad}
             onError={() => {
-              if (spritePhase === 'gif') { setSpritePhase('png'); setDisplaySrc(pngUrl) }
+              if (spritePhase === 'gif') { setSpritePhase('png'); setDisplaySrc(pngUrl); setSpriteSize(null) }
               else { setSpritePhase('text') }
             }}
           />
         ) : (
-          <span className="text-lg font-bold text-center leading-tight break-words px-1" style={nameStyle}>
+          <span className="text-3xl font-bold text-center leading-tight break-words px-2" style={nameStyle}>
             {displayName}
           </span>
         )}
       </div>
 
-      <span className="text-white/40 text-[10px] text-center leading-tight">{displayName}</span>
+      <span className="text-white/40 text-xl text-center leading-tight">{displayName}</span>
 
       {infoMode >= 1 && types.length > 0 && (
-        <div className="flex gap-1 justify-center flex-wrap">
+        <div className="flex gap-2 justify-center flex-wrap">
           {types.map((t) => (
             <span
               key={t}
-              className="text-[8px] font-semibold px-1.5 py-0.5 rounded-full capitalize"
+              className="text-base font-semibold px-3 py-1 rounded-full capitalize"
               style={{ backgroundColor: TYPE_COLORS[t]?.bg ?? '#888', color: '#fff' }}
             >
               {t}
@@ -153,13 +196,13 @@ function IdleSlot({ pokemonId, pokemonName, displayName, types, shiny, heldItem,
       )}
 
       {infoMode >= 2 && heldItem && (
-        <span className="text-white/45 text-[9px] text-center leading-tight">{heldItem}</span>
+        <span className="text-white/45 text-lg text-center leading-tight">{heldItem}</span>
       )}
 
       {infoMode >= 3 && moves.length > 0 && (
-        <div className="text-center space-y-0.5">
+        <div className="text-center space-y-1">
           {moves.map((m) => (
-            <div key={m} className="text-white/35 text-[8px] leading-tight">{m}</div>
+            <div key={m} className="text-white/35 text-base leading-tight">{m}</div>
           ))}
         </div>
       )}
@@ -208,22 +251,25 @@ function IdleMode({ party, onClose, onViewDetail }) {
       <button
         onClick={onClose}
         aria-label="Exit idle mode"
-        className="absolute top-5 right-5 text-white/30 hover:text-white/80 transition-colors"
+        className="absolute top-10 right-10 text-white/30 hover:text-white/80 transition-colors"
       >
-        <X size={22} />
+        <X size={44} />
       </button>
 
-      <p className="text-white/20 text-xs tracking-[0.3em] uppercase mb-10 font-semibold">
+      <p className="text-white/20 text-2xl tracking-[0.3em] uppercase mb-20 font-semibold">
         {party.name}
+        {party.targetGen && (
+          <span className="ml-4 text-lg tracking-normal normal-case opacity-60">Gen {party.targetGen}</span>
+        )}
       </p>
 
       {members.length === 0 ? (
-        <p className="text-white/30 text-sm">No Pokémon in this party.</p>
+        <p className="text-white/30 text-lg">No Pokémon in this party.</p>
       ) : (
-        <div className="flex flex-nowrap justify-center gap-8 px-8 items-start">
+        <div className="flex flex-nowrap justify-center gap-16 px-16 items-start">
           {members.map((member) => {
             const pokemon     = pokemonMap[member.pokemonId]
-            const types       = pokemon?.types?.map((t) => t.type.name) ?? []
+            const types       = getTypesForGen(pokemon, party.targetGen)
             const displayName = member.nickname || pokemon?.name || `#${member.pokemonId}`
             const moves       = extractMoves(member.notes)
             return (
@@ -244,9 +290,9 @@ function IdleMode({ party, onClose, onViewDetail }) {
         </div>
       )}
 
-      <div className="absolute bottom-5 flex flex-col items-center gap-2">
-        <p className="text-white/25 text-[10px] tracking-wide">{INFO_MODE_LABELS[infoMode]}</p>
-        <p className="text-white/15 text-[10px]">Space to cycle info · Esc to exit · Middle-click for details</p>
+      <div className="absolute bottom-10 flex flex-col items-center gap-4">
+        <p className="text-white/25 text-xl tracking-wide">{INFO_MODE_LABELS[infoMode]}</p>
+        <p className="text-white/15 text-lg">Space to cycle info · Esc to exit · Middle-click for details</p>
         <button
           onClick={() => {
             const sets = (party.members ?? [])
@@ -257,10 +303,10 @@ function IdleMode({ party, onClose, onViewDetail }) {
             setCopied(true)
             setTimeout(() => setCopied(false), 2000)
           }}
-          className="flex items-center gap-1.5 text-white/30 hover:text-white/70 transition-colors text-[10px]"
+          className="flex items-center gap-3 text-white/30 hover:text-white/70 transition-colors text-lg"
           title="Copy team as Showdown sets"
         >
-          {copied ? <Check size={12} /> : <Clipboard size={12} />}
+          {copied ? <Check size={24} /> : <Clipboard size={24} />}
           {copied ? 'Copied!' : 'Copy team'}
         </button>
       </div>
@@ -554,16 +600,38 @@ function PartyCard({ party, onUpdate, onDelete, onIdle, onShare, onViewDetail })
       </div>
 
       {expanded && (
-        <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {members.map((member, i) => (
-            <MemberSlot
-              key={i}
-              member={member}
-              onUpdate={(u) => updateMember(i, u)}
-              onRemove={() => removeMember(i)}
-              onViewDetail={onViewDetail}
-            />
-          ))}
+        <div className="px-4 pb-4 space-y-3">
+          {/* Per-party generation — affects historical types in idle mode */}
+          <div className="flex items-center gap-2">
+            <span className="text-dim text-xs">Team generation:</span>
+            <select
+              value={party.targetGen ?? ''}
+              onChange={(e) => onUpdate({ targetGen: e.target.value || null })}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-card border border-border rounded-lg px-2 py-0.5 text-xs text-fg focus:outline-none"
+            >
+              <option value="">Any / current</option>
+              {GENERATIONS.map((g) => (
+                <option key={g.value} value={g.value}>
+                  Gen {g.label.replace('Gen ', '')}
+                </option>
+              ))}
+            </select>
+            {party.targetGen && (
+              <span className="text-dim text-[10px]">Types shown for Gen {party.targetGen} in idle mode</span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {members.map((member, i) => (
+              <MemberSlot
+                key={i}
+                member={member}
+                onUpdate={(u) => updateMember(i, u)}
+                onRemove={() => removeMember(i)}
+                onViewDetail={onViewDetail}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>
