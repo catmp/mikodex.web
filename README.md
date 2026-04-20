@@ -1,6 +1,6 @@
 # MikoDex — Pokémon Tools Hub
 
--*https://mikodex.netlify.app*-
+-**https://mikodex.netlify.app**-
 
 Single-page application built with React 19 and Vite, aggregating Pokémon data from the [PokéAPI](https://pokeapi.co) into a suite of interconnected tools. Designed to be a one-stop-shop that meets every need of a Pokemon trainer.
 
