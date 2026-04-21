@@ -99,6 +99,7 @@ No environment variables or API keys required.
 - Dex tracker does not reference regional dex and in some cases doesn't render at all FIX: Source PokeDex data by game (HGSS, ORAS, LGPE, etc.) instead of generation  
 - Under egg moves, only first 6 possible fathers are displayed FIX: expand breeders list when user clicks it
 - Evolution method renders inconsistently FIX: display method under the evolved Pokemon, rather than over the arrow
+- Regional variants of pokemon have no encounter data or move data FIX: source data from PokeAPI
 
 ## Future Features
 
